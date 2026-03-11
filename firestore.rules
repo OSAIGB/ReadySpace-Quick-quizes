@@ -1,83 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: userId (Firebase Auth UID)
-    // Fields:
-    //   - uid: string (required)
-    //   - name: string (required)
-    //   - email: string (required)
-    //   - createdAt: string (required)
-    //
-    // Collection: results
-    // Document ID: auto-generated
-    // Fields:
-    //   - userId: string (required)
-    //   - userName: string (required)
-    //   - subject: string (required)
-    //   - topic: string (required)
-    //   - score: number (required)
-    //   - totalQuestions: number (required)
-    //   - timestamp: timestamp (required)
-    //   - cheated: boolean (required)
-    //
-    // ===============================================================
-
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-    
+    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
-
+    
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'name', 'email', 'createdAt']) &&
-             data.uid is string && data.uid == request.auth.uid &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    function isValidResult(data) {
-      return data.keys().hasAll(['userId', 'userName', 'subject', 'topic', 'score', 'totalQuestions', 'timestamp', 'cheated']) &&
-             data.userId is string && data.userId == request.auth.uid &&
-             data.userName is string && data.userName.size() > 0 &&
-             data.subject is string &&
-             data.topic is string &&
-             data.score is number && data.score >= 0 &&
-             data.totalQuestions is number && data.totalQuestions > 0 &&
-             data.timestamp is timestamp &&
-             data.cheated is bool;
-    }
-
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
+    // User profiles
     match /users/{userId} {
-      allow read, write: if false; // Auth removed for now
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
     }
 
-    match /results/{resultId} {
-      // Leaderboard is public
-      allow read: if true;
-      // Anyone can create results for now (auth removed)
-      allow create: if request.resource.data.keys().hasAll(['userId', 'userName', 'subject', 'topic', 'score', 'totalQuestions', 'timestamp', 'cheated']) &&
-                     request.resource.data.score is number &&
-                     request.resource.data.userName is string &&
-                     request.resource.data.userName.size() > 0 &&
-                     request.resource.data.userName.size() < 100;
-      // Results are immutable
-      allow update, delete: if false;
+    // Leaderboard scores
+    match /leaderboard/{scoreId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Scores are immutable
     }
   }
 }

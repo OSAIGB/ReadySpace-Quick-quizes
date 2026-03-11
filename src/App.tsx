@@ -31,9 +31,6 @@ import {
   limit, 
   onSnapshot, 
   serverTimestamp,
-  doc,
-  setDoc,
-  getDoc
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { ENGLISH_QUESTIONS } from './data/questions';
@@ -42,13 +39,14 @@ import { Question, QuizResult, Subject } from './types';
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
 
 export default function App() {
-  const [user, setUser] = useState<{ name: string, uid: string } | null>(null);
+  const [user, setUser] = useState<{ name: string, email: string, uid: string } | null>(null);
   const [screen, setScreen] = useState<Screen>('auth');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   // Simple Name Entry State
   const [tempName, setTempName] = useState('');
+  const [tempEmail, setTempEmail] = useState('');
 
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
@@ -85,15 +83,20 @@ export default function App() {
   useEffect(() => {
     // Load local user if exists
     const savedName = localStorage.getItem('readyspace_user_name');
-    if (savedName) {
-      setUser({ name: savedName, uid: 'local_' + Math.random().toString(36).substr(2, 9) });
+    const savedEmail = localStorage.getItem('readyspace_user_email');
+    if (savedName && savedEmail) {
+      setUser({ 
+        name: savedName, 
+        email: savedEmail,
+        uid: 'local_' + Math.random().toString(36).substr(2, 9) 
+      });
       setScreen('subjects');
     }
   }, []);
 
   useEffect(() => {
     if (screen === 'leaderboard') {
-      const q = query(collection(db, 'results'), orderBy('score', 'desc'), limit(10));
+      const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
         setLeaderboard(results);
@@ -133,19 +136,25 @@ export default function App() {
 
   const handleEnter = (e: React.FormEvent) => {
     e.preventDefault();
-    if (tempName.trim().length < 2) {
-      setError("Please enter a valid name.");
+    if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
+      setError("Please enter your full name and a valid email.");
       return;
     }
-    const newUser = { name: tempName, uid: 'local_' + Math.random().toString(36).substr(2, 9) };
+    const newUser = { 
+      name: tempName, 
+      email: tempEmail,
+      uid: 'local_' + Math.random().toString(36).substr(2, 9) 
+    };
     setUser(newUser);
     localStorage.setItem('readyspace_user_name', tempName);
+    localStorage.setItem('readyspace_user_email', tempEmail);
     setScreen('subjects');
   };
 
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('readyspace_user_name');
+    localStorage.removeItem('readyspace_user_email');
     setScreen('auth');
   };
 
@@ -210,6 +219,7 @@ export default function App() {
     const result: QuizResult = {
       userId: user?.uid || 'anonymous',
       userName: user?.name || 'Anonymous',
+      email: user?.email || 'Unknown',
       subject: selectedSubject!,
       topic: 'LEXIS AND STRUCTURE',
       score: score,
@@ -219,7 +229,7 @@ export default function App() {
     };
 
     try {
-      await addDoc(collection(db, 'results'), result);
+      await addDoc(collection(db, 'leaderboard'), result);
       setScreen('results');
     } catch (err: any) {
       setError("Failed to save result: " + err.message);
@@ -309,6 +319,21 @@ export default function App() {
                       onChange={(e) => setTempName(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
                       placeholder="Enter your full name"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Student Email</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+                    <input 
+                      required
+                      type="email"
+                      value={tempEmail}
+                      onChange={(e) => setTempEmail(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
+                      placeholder="Enter your email address"
                     />
                   </div>
                 </div>
@@ -514,49 +539,49 @@ export default function App() {
                           : 'bg-white border-red-100'
                       }`}
                     >
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className={`p-2 rounded-xl ${showFeedback.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className={`p-1.5 rounded-lg ${showFeedback.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
                           {showFeedback.isCorrect ? (
-                            <CheckCircle2 className="w-6 h-6" />
+                            <CheckCircle2 className="w-5 h-5" />
                           ) : (
-                            <XCircle className="w-6 h-6" />
+                            <XCircle className="w-5 h-5" />
                           )}
                         </div>
                         <div>
-                          <h4 className={`text-base sm:text-lg font-bold italic serif ${showFeedback.isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
+                          <h4 className={`text-sm sm:text-base font-bold italic serif ${showFeedback.isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
                             {showFeedback.isCorrect ? 'Correct!' : 'Incorrect'}
                           </h4>
-                          <p className="text-[11px] sm:text-xs text-stone-500 font-medium">
+                          <p className="text-[10px] sm:text-[11px] text-stone-500 font-medium">
                             {showFeedback.isCorrect ? 'Great job, keep it up!' : 'Don\'t worry, learn from this:'}
                           </p>
                         </div>
                       </div>
                       
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {!showFeedback.isCorrect && (
-                          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-0.5">Correct Answer</p>
-                            <p className="text-base font-bold text-emerald-800">{showFeedback.correctAnswer}</p>
+                          <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-100">
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-600 mb-0.5">Correct Answer</p>
+                            <p className="text-sm font-bold text-emerald-800">{showFeedback.correctAnswer}</p>
                           </div>
                         )}
 
                         {showFeedback.explanation && (
-                          <div className="space-y-2">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Explanation & Usage</p>
-                            <div className="text-stone-700 text-xs leading-relaxed markdown-body bg-stone-50 p-4 rounded-xl border border-stone-100">
+                          <div className="space-y-1.5">
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-stone-400">Explanation & Usage</p>
+                            <div className="text-stone-700 text-[11px] leading-relaxed markdown-body bg-stone-50 p-3 rounded-lg border border-stone-100">
                               <Markdown>{showFeedback.explanation}</Markdown>
                             </div>
                           </div>
                         )}
                       </div>
 
-                      <div className="mt-8 pt-6 border-t border-stone-100 flex justify-center">
+                      <div className="mt-6 pt-4 border-t border-stone-100 flex justify-center">
                         <button
                           onClick={nextQuestion}
-                          className="flex items-center gap-2 px-8 py-4 rounded-2xl font-bold bg-stone-900 text-white hover:bg-stone-800 transition-all active:scale-95 shadow-xl"
+                          className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-stone-900 text-white hover:bg-stone-800 transition-all active:scale-95 shadow-lg text-sm"
                         >
-                          {currentQuestionIndex === ENGLISH_QUESTIONS.length - 1 ? 'Finish Quiz' : 'Continue to Next Question'}
-                          <ChevronRight className="w-5 h-5" />
+                          {currentQuestionIndex === ENGLISH_QUESTIONS.length - 1 ? 'Finish Quiz' : 'Continue'}
+                          <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
                     </motion.div>
@@ -672,20 +697,24 @@ export default function App() {
               <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
                 <div className="grid grid-cols-12 bg-stone-50 p-4 border-b border-stone-200 text-xs font-bold uppercase tracking-widest text-stone-400">
                   <div className="col-span-1">#</div>
-                  <div className="col-span-7">Student</div>
+                  <div className="col-span-5">Student</div>
                   <div className="col-span-2 text-right">Score</div>
+                  <div className="col-span-2 text-right">Email</div>
                   <div className="col-span-2 text-right">Status</div>
                 </div>
                 <div className="divide-y divide-stone-100">
                   {leaderboard.length > 0 ? leaderboard.map((res, idx) => (
                     <div key={res.id} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
                       <div className="col-span-1 font-mono text-stone-400">{idx + 1}</div>
-                      <div className="col-span-7">
+                      <div className="col-span-5">
                         <p className="font-bold text-stone-800">{res.userName}</p>
-                        <p className="text-xs text-stone-400">{res.subject} • {res.topic}</p>
+                        <p className="text-[10px] text-stone-400">{res.subject} • {res.topic}</p>
                       </div>
-                      <div className="col-span-2 text-right font-black text-emerald-600 text-lg">
+                      <div className="col-span-2 text-right font-black text-emerald-600 text-base sm:text-lg">
                         {res.score}
+                      </div>
+                      <div className="col-span-2 text-right text-[9px] text-stone-500 truncate px-1">
+                        {res.email}
                       </div>
                       <div className="col-span-2 text-right">
                         {res.cheated ? (

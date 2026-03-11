@@ -6,37 +6,38 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
-        "name": { "type": "string" },
+        "displayName": { "type": "string" },
         "email": { "type": "string" },
+        "school": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "name", "email"]
+      "required": ["uid", "displayName", "email"]
     },
-    "QuizResult": {
-      "title": "Quiz Result",
-      "description": "Result of a completed quiz session",
+    "QuizScore": {
+      "title": "Quiz Score",
+      "description": "A record of a completed quiz attempt",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "userName": { "type": "string" },
+        "email": { "type": "string" },
+        "score": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "timeTaken": { "type": "integer" },
         "subject": { "type": "string" },
-        "topic": { "type": "string" },
-        "score": { "type": "number" },
-        "totalQuestions": { "type": "number" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "cheated": { "type": "boolean" }
+        "timestamp": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "userName", "subject", "score", "totalQuestions", "timestamp"]
+      "required": ["userId", "userName", "email", "score", "totalQuestions", "timeTaken", "subject", "timestamp"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
-      "description": "Individual student records"
+      "description": "User profiles"
     },
-    "/results/{resultId}": {
-      "schema": "QuizResult",
-      "description": "Historical quiz performance and leaderboard data"
+    "/leaderboard/{scoreId}": {
+      "schema": "QuizScore",
+      "description": "Quiz scores for the leaderboard"
     }
   }
 }

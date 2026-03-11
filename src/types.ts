@@ -18,6 +18,7 @@ export interface QuizResult {
   id?: string;
   userId: string;
   userName: string;
+  email: string;
   subject: string;
   topic: string;
   score: number;
