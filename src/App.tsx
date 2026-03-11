@@ -405,55 +405,46 @@ export default function App() {
               exit={{ opacity: 0 }}
               onContextMenu={(e) => e.preventDefault()}
               onCopy={(e) => e.preventDefault()}
-              className="max-w-3xl mx-auto space-y-6 select-none"
+              className="max-w-3xl mx-auto space-y-3 select-none"
             >
-              {/* Quiz Header */}
-              <div className="flex items-center justify-between bg-white p-3 sm:p-4 rounded-2xl border border-stone-200 shadow-sm">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="bg-emerald-50 text-emerald-600 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-bold">
-                    Q{currentQuestionIndex + 1} / {ENGLISH_QUESTIONS.length}
+              {/* Section Info & Stats */}
+              <div className="bg-white p-3 sm:p-4 rounded-2xl border border-stone-200 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-emerald-600">
+                    <Trophy className="w-3.5 h-3.5 sm:w-4 h-4" />
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{ENGLISH_QUESTIONS[currentQuestionIndex].section}</span>
                   </div>
-                  <div className={`flex items-center gap-2 text-xs sm:text-sm font-bold ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-stone-500'}`}>
-                    <Timer className="w-3.5 h-3.5 sm:w-4 h-4" />
-                    <span className="font-mono">
-                      {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold">
+                      Q{currentQuestionIndex + 1} / {ENGLISH_QUESTIONS.length}
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-[10px] sm:text-xs font-bold ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-stone-500'}`}>
+                      <Timer className="w-3 h-3 sm:w-3.5 h-3.5" />
+                      <span className="font-mono">
+                        {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
                   </div>
                 </div>
+                
                 {cheatAttempts > 0 && (
-                  <div className="flex items-center gap-2 text-red-500 text-xs font-bold uppercase tracking-widest">
-                    <ShieldAlert className="w-4 h-4" />
+                  <div className="flex items-center gap-2 text-red-500 text-[10px] font-bold uppercase tracking-widest bg-red-50 p-2 rounded-lg">
+                    <ShieldAlert className="w-3.5 h-3.5" />
                     Security Warning
                   </div>
                 )}
-              </div>
 
-              {/* Progress Bar */}
-              <div className="w-full h-2 bg-stone-200 rounded-full overflow-hidden">
-                <motion.div 
-                  className="h-full bg-emerald-500"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${((currentQuestionIndex + 1) / ENGLISH_QUESTIONS.length) * 100}%` }}
-                />
-              </div>
-
-              {/* Section Info */}
-              <div className="bg-white p-4 sm:p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-                <div className="flex items-center gap-2 text-emerald-600">
-                  <Trophy className="w-4 h-4 sm:w-5 h-5" />
-                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{ENGLISH_QUESTIONS[currentQuestionIndex].section}</span>
-                </div>
-                <div className="flex items-start gap-2 sm:gap-3 p-3 sm:p-4 bg-stone-50 rounded-xl border border-stone-100">
-                  <Info className="w-4 h-4 sm:w-5 h-5 text-stone-400 shrink-0 mt-0.5" />
-                  <div className="text-xs sm:text-sm text-stone-600 font-medium leading-relaxed">
+                <div className="flex items-start gap-2 p-2 sm:p-3 bg-stone-50 rounded-xl border border-stone-100">
+                  <Info className="w-3.5 h-3.5 sm:w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
+                  <div className="text-[11px] sm:text-xs text-stone-600 font-medium leading-relaxed">
                     <Markdown>{ENGLISH_QUESTIONS[currentQuestionIndex].instruction}</Markdown>
                   </div>
                 </div>
               </div>
 
               {/* Question Card */}
-              <div className="bg-white p-5 sm:p-8 rounded-3xl border border-stone-200 shadow-sm space-y-6 sm:space-y-8">
-                <div className="text-lg sm:text-2xl font-medium text-stone-800 leading-relaxed markdown-body">
+              <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm space-y-4 sm:space-y-6">
+                <div className="text-base sm:text-xl font-medium text-stone-800 leading-relaxed markdown-body">
                   <Markdown>{ENGLISH_QUESTIONS[currentQuestionIndex].text}</Markdown>
                 </div>
 
@@ -523,36 +514,36 @@ export default function App() {
                           : 'bg-white border-red-100'
                       }`}
                     >
-                      <div className="flex items-center gap-4 mb-6">
-                        <div className={`p-3 rounded-2xl ${showFeedback.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className={`p-2 rounded-xl ${showFeedback.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
                           {showFeedback.isCorrect ? (
-                            <CheckCircle2 className="w-8 h-8" />
+                            <CheckCircle2 className="w-6 h-6" />
                           ) : (
-                            <XCircle className="w-8 h-8" />
+                            <XCircle className="w-6 h-6" />
                           )}
                         </div>
                         <div>
-                          <h4 className={`text-2xl font-bold italic serif ${showFeedback.isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
+                          <h4 className={`text-base sm:text-lg font-bold italic serif ${showFeedback.isCorrect ? 'text-emerald-700' : 'text-red-700'}`}>
                             {showFeedback.isCorrect ? 'Correct!' : 'Incorrect'}
                           </h4>
-                          <p className="text-stone-500 font-medium">
+                          <p className="text-[11px] sm:text-xs text-stone-500 font-medium">
                             {showFeedback.isCorrect ? 'Great job, keep it up!' : 'Don\'t worry, learn from this:'}
                           </p>
                         </div>
                       </div>
                       
-                      <div className="space-y-6">
+                      <div className="space-y-4">
                         {!showFeedback.isCorrect && (
-                          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                            <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-1">Correct Answer</p>
-                            <p className="text-lg font-bold text-emerald-800">{showFeedback.correctAnswer}</p>
+                          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-0.5">Correct Answer</p>
+                            <p className="text-base font-bold text-emerald-800">{showFeedback.correctAnswer}</p>
                           </div>
                         )}
 
                         {showFeedback.explanation && (
-                          <div className="space-y-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-stone-400">Explanation & Usage</p>
-                            <div className="text-stone-700 leading-relaxed markdown-body bg-stone-50 p-5 rounded-2xl border border-stone-100">
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Explanation & Usage</p>
+                            <div className="text-stone-700 text-xs leading-relaxed markdown-body bg-stone-50 p-4 rounded-xl border border-stone-100">
                               <Markdown>{showFeedback.explanation}</Markdown>
                             </div>
                           </div>
