@@ -1,0 +1,5 @@
+{
+  "name": "ReadySpace",
+  "description": "A secure, cheat-proof quiz application for JAMB students with real-time leaderboard and subject-specific topics.",
+  "requestFramePermissions": []
+}
