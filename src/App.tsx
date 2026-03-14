@@ -32,7 +32,7 @@ import {
   onSnapshot, 
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, signInAnonymously } from './firebase';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { Question, QuizResult, Subject } from './types';
 
@@ -134,16 +134,27 @@ export default function App() {
     setTimeout(() => setError(null), 3000);
   };
 
-  const handleEnter = (e: React.FormEvent) => {
+  const handleEnter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
       setError("Please enter your full name and a valid email.");
       return;
     }
+
+    // Attempt anonymous sign-in (uses Firebase anonymous auth if enabled).
+    let uid = 'local_' + Math.random().toString(36).substr(2, 9);
+    try {
+      const anonUser = await signInAnonymously();
+      if (anonUser && anonUser.uid) uid = anonUser.uid;
+    } catch (err) {
+      // If anonymous sign-in fails, continue with a local fallback id
+      console.warn('Anonymous sign-in failed, using local id', err);
+    }
+
     const newUser = { 
       name: tempName, 
       email: tempEmail,
-      uid: 'local_' + Math.random().toString(36).substr(2, 9) 
+      uid
     };
     setUser(newUser);
     localStorage.setItem('readyspace_user_name', tempName);

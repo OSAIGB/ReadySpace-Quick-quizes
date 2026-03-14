@@ -18,9 +18,27 @@ service cloud.firestore {
 
     // Leaderboard scores
     match /leaderboard/{scoreId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if false; // Scores are immutable
+      // Allow public reads so leaderboard is visible to all users (authenticated or not)
+      allow read: if true;
+
+      // Allow creating scores either when the user is authenticated and their
+      // UID matches the posted `userId`, OR when using the local (guest)
+      // flow in the app where `userId` starts with "local_".
+      allow create: if (
+        isAuthenticated() && request.resource.data.userId == request.auth.uid
+      ) || (
+        !isAuthenticated() 
+        && request.resource.data.userId is string
+        && request.resource.data.userId.matches('^local_.*')
+        && request.resource.data.userName is string
+        && request.resource.data.email is string
+        && request.resource.data.score is int
+        && request.resource.data.totalQuestions is int
+        && request.resource.data.cheated is bool
+      );
+
+      // Scores are immutable after creation
+      allow update, delete: if false;
     }
   }
 }
