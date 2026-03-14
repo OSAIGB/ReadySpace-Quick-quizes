@@ -5,13 +5,12 @@
       "description": "Student profile information",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "displayName": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
         "email": { "type": "string" },
-        "school": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "displayName", "email"]
+      "required": ["userId", "name", "email"]
     },
     "QuizScore": {
       "title": "Quiz Score",
@@ -23,11 +22,11 @@
         "email": { "type": "string" },
         "score": { "type": "integer" },
         "totalQuestions": { "type": "integer" },
-        "timeTaken": { "type": "integer" },
         "subject": { "type": "string" },
+        "topic": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "userName", "email", "score", "totalQuestions", "timeTaken", "subject", "timestamp"]
+      "required": ["userId", "userName", "email", "score", "totalQuestions", "subject", "topic", "timestamp"]
     }
   },
   "firestore": {

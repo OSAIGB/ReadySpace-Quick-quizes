@@ -32,8 +32,9 @@ import {
   onSnapshot, 
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, signInAnonymously } from './firebase';
+import { db } from './firebase';
 import { ENGLISH_QUESTIONS } from './data/questions';
+import { MATH_QUESTIONS } from './data/math_questions';
 import { Question, QuizResult, Subject } from './types';
 
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
@@ -50,6 +51,7 @@ export default function App() {
 
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
+  const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [answers, setAnswers] = useState<{questionId: number, selected: string, isCorrect: boolean}[]>([]);
@@ -134,27 +136,16 @@ export default function App() {
     setTimeout(() => setError(null), 3000);
   };
 
-  const handleEnter = async (e: React.FormEvent) => {
+  const handleEnter = (e: React.FormEvent) => {
     e.preventDefault();
     if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
       setError("Please enter your full name and a valid email.");
       return;
     }
-
-    // Attempt anonymous sign-in (uses Firebase anonymous auth if enabled).
-    let uid = 'local_' + Math.random().toString(36).substr(2, 9);
-    try {
-      const anonUser = await signInAnonymously();
-      if (anonUser && anonUser.uid) uid = anonUser.uid;
-    } catch (err) {
-      // If anonymous sign-in fails, continue with a local fallback id
-      console.warn('Anonymous sign-in failed, using local id', err);
-    }
-
     const newUser = { 
       name: tempName, 
       email: tempEmail,
-      uid
+      uid: 'local_' + Math.random().toString(36).substr(2, 9) 
     };
     setUser(newUser);
     localStorage.setItem('readyspace_user_name', tempName);
@@ -170,7 +161,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English') {
+    if (subject !== 'English' && subject !== 'Math') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -180,6 +171,8 @@ export default function App() {
   };
 
   const startQuiz = () => {
+    const questions = selectedSubject === 'Math' ? MATH_QUESTIONS : ENGLISH_QUESTIONS;
+    setCurrentQuestions(questions);
     setScreen('quiz');
     setCurrentQuestionIndex(0);
     setScore(0);
@@ -192,7 +185,7 @@ export default function App() {
   const handleAnswer = (selectedOption: string) => {
     if (showFeedback) return;
 
-    const currentQuestion = ENGLISH_QUESTIONS[currentQuestionIndex];
+    const currentQuestion = currentQuestions[currentQuestionIndex];
     const isCorrect = selectedOption === currentQuestion.answer;
     
     if (isCorrect) setScore(prev => prev + 1);
@@ -212,7 +205,7 @@ export default function App() {
 
   const nextQuestion = () => {
     setShowFeedback(null);
-    if (currentQuestionIndex < ENGLISH_QUESTIONS.length - 1) {
+    if (currentQuestionIndex < currentQuestions.length - 1) {
       setCurrentQuestionIndex(prev => prev + 1);
     } else {
       finishQuiz();
@@ -232,9 +225,9 @@ export default function App() {
       userName: user?.name || 'Anonymous',
       email: user?.email || 'Unknown',
       subject: selectedSubject!,
-      topic: 'LEXIS AND STRUCTURE',
+      topic: selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE',
       score: score,
-      totalQuestions: ENGLISH_QUESTIONS.length,
+      totalQuestions: currentQuestions.length,
       timestamp: serverTimestamp(),
       cheated: cheatAttempts > 0
     };
@@ -378,21 +371,21 @@ export default function App() {
                     key={subject}
                     onClick={() => handleSubjectSelect(subject)}
                     className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
-                      subject === 'English' 
+                      subject === 'English' || subject === 'Math'
                         ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
                         : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
                     }`}
                   >
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                      subject === 'English' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                      subject === 'English' || subject === 'Math' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
                     }`}>
                       <BookOpen className="w-6 h-6" />
                     </div>
                     <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
                     <p className="text-xs text-stone-500 mt-1">
-                      {subject === 'English' ? '60 Questions Available' : 'Coming Soon'}
+                      {subject === 'English' ? '60 Questions Available' : subject === 'Math' ? '60 Questions Available' : 'Coming Soon'}
                     </p>
-                    {subject === 'English' && (
+                    {(subject === 'English' || subject === 'Math') && (
                       <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                     )}
                   </button>
@@ -422,8 +415,14 @@ export default function App() {
                   className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
                 >
                   <div>
-                    <h3 className="font-bold text-xl text-stone-800">LEXIS AND STRUCTURE</h3>
-                    <p className="text-sm text-stone-500 mt-1">Synonyms, Antonyms, Sentence Patterns, Mechanics</p>
+                    <h3 className="font-bold text-xl text-stone-800 uppercase">
+                      {selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE'}
+                    </h3>
+                    <p className="text-sm text-stone-500 mt-1">
+                      {selectedSubject === 'Math' 
+                        ? 'Percentages, Interest, Standard Form, Ratios, and more.' 
+                        : 'Synonyms, Antonyms, Sentence Patterns, Mechanics'}
+                    </p>
                   </div>
                   <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                     <ChevronRight className="w-5 h-5" />
@@ -448,11 +447,11 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-emerald-600">
                     <Trophy className="w-3.5 h-3.5 sm:w-4 h-4" />
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{ENGLISH_QUESTIONS[currentQuestionIndex].section}</span>
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{currentQuestions[currentQuestionIndex].section}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold">
-                      Q{currentQuestionIndex + 1} / {ENGLISH_QUESTIONS.length}
+                      Q{currentQuestionIndex + 1} / {currentQuestions.length}
                     </div>
                     <div className={`flex items-center gap-1.5 text-[10px] sm:text-xs font-bold ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-stone-500'}`}>
                       <Timer className="w-3 h-3 sm:w-3.5 h-3.5" />
@@ -473,7 +472,7 @@ export default function App() {
                 <div className="flex items-start gap-2 p-2 sm:p-3 bg-stone-50 rounded-xl border border-stone-100">
                   <Info className="w-3.5 h-3.5 sm:w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
                   <div className="text-[11px] sm:text-xs text-stone-600 font-medium leading-relaxed">
-                    <Markdown>{ENGLISH_QUESTIONS[currentQuestionIndex].instruction}</Markdown>
+                    <Markdown>{currentQuestions[currentQuestionIndex].instruction}</Markdown>
                   </div>
                 </div>
               </div>
@@ -481,14 +480,14 @@ export default function App() {
               {/* Question Card */}
               <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm space-y-4 sm:space-y-6">
                 <div className="text-base sm:text-xl font-medium text-stone-800 leading-relaxed markdown-body">
-                  <Markdown>{ENGLISH_QUESTIONS[currentQuestionIndex].text}</Markdown>
+                  <Markdown>{currentQuestions[currentQuestionIndex].text}</Markdown>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 sm:gap-3">
-                  {ENGLISH_QUESTIONS[currentQuestionIndex].options.map((option) => {
-                    const currentAnswer = answers.find(a => a.questionId === ENGLISH_QUESTIONS[currentQuestionIndex].id);
+                  {currentQuestions[currentQuestionIndex].options.map((option) => {
+                    const currentAnswer = answers.find(a => a.questionId === currentQuestions[currentQuestionIndex].id);
                     const isSelected = currentAnswer?.selected === option;
-                    const isCorrect = option === ENGLISH_QUESTIONS[currentQuestionIndex].answer;
+                    const isCorrect = option === currentQuestions[currentQuestionIndex].answer;
                     const hasBeenAnswered = !!currentAnswer;
                     
                     let buttonClass = "w-full p-4 sm:p-5 text-left rounded-xl sm:rounded-2xl border-2 transition-all font-medium flex items-center justify-between group text-sm sm:text-base ";
@@ -526,7 +525,7 @@ export default function App() {
                     onClick={nextQuestion}
                     className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 sm:py-3 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all active:scale-95"
                   >
-                    {currentQuestionIndex === ENGLISH_QUESTIONS.length - 1 ? 'Finish Quiz' : 'Next Question'}
+                    {currentQuestionIndex === currentQuestions.length - 1 ? 'Finish Quiz' : 'Next Question'}
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
@@ -591,7 +590,7 @@ export default function App() {
                           onClick={nextQuestion}
                           className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-stone-900 text-white hover:bg-stone-800 transition-all active:scale-95 shadow-lg text-sm"
                         >
-                          {currentQuestionIndex === ENGLISH_QUESTIONS.length - 1 ? 'Finish Quiz' : 'Continue'}
+                          {currentQuestionIndex === currentQuestions.length - 1 ? 'Finish Quiz' : 'Continue'}
                           <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
@@ -621,13 +620,13 @@ export default function App() {
                   </div>
                   <div className="text-center">
                     <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-stone-400 mb-1">Total Questions</p>
-                    <p className="text-3xl sm:text-5xl font-black text-stone-800">{ENGLISH_QUESTIONS.length}</p>
+                    <p className="text-3xl sm:text-5xl font-black text-stone-800">{currentQuestions.length}</p>
                   </div>
                 </div>
                 
                 <div className="space-y-4 pt-4">
                   <p className="text-stone-600">
-                    Percentage: <span className="font-bold text-stone-800">{Math.round((score / ENGLISH_QUESTIONS.length) * 100)}%</span>
+                    Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
                   </p>
                   {cheatAttempts > 0 && (
                     <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm flex items-center justify-center gap-2">
@@ -657,7 +656,7 @@ export default function App() {
                   <h3 className="text-xl sm:text-2xl font-bold text-stone-800 italic serif border-b border-stone-100 pb-4">Review Your Answers</h3>
                   <div className="space-y-4 max-h-[400px] sm:max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                     {answers.map((ans, idx) => {
-                      const question = ENGLISH_QUESTIONS.find(q => q.id === ans.questionId);
+                      const question = currentQuestions.find(q => q.id === ans.questionId);
                       if (!question) return null;
                       return (
                         <div key={idx} className={`p-4 rounded-2xl border ${ans.isCorrect ? 'bg-emerald-50/50 border-emerald-100' : 'bg-red-50/50 border-red-100'}`}>
