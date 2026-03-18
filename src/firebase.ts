@@ -1,12 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import firebaseJson from '../firebase-applet-config.json';
-
-const firebaseConfig = {
-  ...firebaseJson,
-  apiKey: ((import.meta.env as any).VITE_API_KEY) || firebaseJson.apiKey,
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
