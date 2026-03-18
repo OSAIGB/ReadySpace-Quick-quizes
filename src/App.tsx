@@ -27,12 +27,13 @@ import {
   collection, 
   addDoc, 
   query, 
+  where,
   orderBy, 
   limit, 
   onSnapshot, 
   serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth, signInWithGoogle } from './firebase';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
 import { Question, QuizResult, Subject } from './types';
@@ -59,6 +60,10 @@ export default function App() {
   const [cheatAttempts, setCheatAttempts] = useState(0);
   const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
   const [leaderboard, setLeaderboard] = useState<QuizResult[]>([]);
+  const [leaderboardSubjectFilter, setLeaderboardSubjectFilter] = useState<'All' | Subject>('All');
+  const [leaderboardTopicFilter, setLeaderboardTopicFilter] = useState<string>('All');
+  const [lastResult, setLastResult] = useState<QuizResult | null>(null);
+  const [lastResultSaved, setLastResultSaved] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
@@ -98,14 +103,21 @@ export default function App() {
 
   useEffect(() => {
     if (screen === 'leaderboard') {
-      const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
+      const constraints: any[] = [];
+      if (leaderboardSubjectFilter && leaderboardSubjectFilter !== 'All') {
+        constraints.push(where('subject', '==', leaderboardSubjectFilter));
+      }
+      if (leaderboardTopicFilter && leaderboardTopicFilter !== 'All') {
+        constraints.push(where('topic', '==', leaderboardTopicFilter));
+      }
+      const q = query(collection(db, 'leaderboard'), ...constraints, orderBy('score', 'desc'), limit(10));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
         setLeaderboard(results);
       });
       return unsubscribe;
     }
-  }, [screen]);
+  }, [screen, leaderboardSubjectFilter, leaderboardTopicFilter]);
 
   // Anti-cheat: Detect tab switching or window blur
   useEffect(() => {
@@ -220,24 +232,54 @@ export default function App() {
   };
 
   const finishQuiz = async () => {
-    const result: QuizResult = {
+    const topic = selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE';
+
+    const provisionalResult: QuizResult = {
       userId: user?.uid || 'anonymous',
       userName: user?.name || 'Anonymous',
       email: user?.email || 'Unknown',
       subject: selectedSubject!,
-      topic: selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE',
+      topic,
       score: score,
       totalQuestions: currentQuestions.length,
       timestamp: serverTimestamp(),
       cheated: cheatAttempts > 0
     };
 
+    setLastResult(provisionalResult);
+    setLastResultSaved(false);
+    setScreen('results');
+  };
+
+  const viewLeaderboard = async () => {
+    if (!lastResult) {
+      setError('No quiz result available to show on leaderboard.');
+      return;
+    }
+
     try {
-      await addDoc(collection(db, 'leaderboard'), result);
-      setScreen('results');
+      if (!auth.currentUser) {
+        const fbUser = await signInWithGoogle();
+        if (fbUser) {
+          setUser({ name: fbUser.displayName || 'Anonymous', email: fbUser.email || 'Unknown', uid: fbUser.uid });
+        }
+      }
+
+      const finalResult = {
+        ...lastResult,
+        userId: auth.currentUser!.uid,
+        userName: auth.currentUser!.displayName || lastResult.userName,
+        email: auth.currentUser!.email || lastResult.email,
+        timestamp: serverTimestamp(),
+      } as QuizResult;
+
+      await addDoc(collection(db, 'leaderboard'), finalResult);
+      setLastResultSaved(true);
+      setLeaderboardSubjectFilter(finalResult.subject as Subject);
+      setLeaderboardTopicFilter(finalResult.topic);
+      setScreen('leaderboard');
     } catch (err: any) {
-      setError("Failed to save result: " + err.message);
-      setScreen('results');
+      setError('Failed to save result: ' + (err?.message || String(err)));
     }
   };
 
@@ -635,6 +677,8 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                
+                <p className="text-stone-600 mt-3 font-medium">Click LEADERBOARD below to see how you fair with others that took this test.</p>
 
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
                   <button 
@@ -644,10 +688,10 @@ export default function App() {
                     Back to Subjects
                   </button>
                   <button 
-                    onClick={() => setScreen('leaderboard')}
+                    onClick={viewLeaderboard}
                     className="flex-1 py-4 bg-white border border-stone-200 text-stone-700 font-bold rounded-2xl hover:bg-stone-50 transition-all"
                   >
-                    View Leaderboard
+                    LEADERBOARD
                   </button>
                 </div>
 
