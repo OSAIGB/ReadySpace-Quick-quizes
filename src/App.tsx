@@ -36,6 +36,7 @@ import {
 import { db, auth, signInWithGoogle } from './firebase';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
+import { PHYSICS_QUESTIONS } from './data/physics_questions';
 import { Question, QuizResult, Subject } from './types';
 
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
@@ -173,7 +174,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math') {
+    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -183,7 +184,11 @@ export default function App() {
   };
 
   const startQuiz = () => {
-    const questions = selectedSubject === 'Math' ? MATH_QUESTIONS : ENGLISH_QUESTIONS;
+    let questions: Question[] = [];
+    if (selectedSubject === 'Math') questions = MATH_QUESTIONS;
+    else if (selectedSubject === 'Physics') questions = PHYSICS_QUESTIONS;
+    else questions = ENGLISH_QUESTIONS;
+
     setCurrentQuestions(questions);
     setScreen('quiz');
     setCurrentQuestionIndex(0);
@@ -232,23 +237,25 @@ export default function App() {
   };
 
   const finishQuiz = async () => {
-    const topic = selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE';
+      let topic = 'LEXIS AND STRUCTURE';
+      if (selectedSubject === 'Math') topic = 'Fractions, Decimals, Approximations and Percentages';
+      else if (selectedSubject === 'Physics') topic = 'Units, Quantities and Instruments';
 
-    const provisionalResult: QuizResult = {
-      userId: user?.uid || 'anonymous',
-      userName: user?.name || 'Anonymous',
-      email: user?.email || 'Unknown',
-      subject: selectedSubject!,
-      topic,
-      score: score,
-      totalQuestions: currentQuestions.length,
-      timestamp: serverTimestamp(),
-      cheated: cheatAttempts > 0
-    };
+      const result: QuizResult = {
+    userId: user?.uid || 'anonymous',
+    userName: user?.name || 'Anonymous',
+    email: user?.email || 'Unknown',
+    subject: selectedSubject!,
+    topic: topic,
+    score: score,
+    totalQuestions: currentQuestions.length,
+    timestamp: serverTimestamp(),
+    cheated: cheatAttempts > 0
+      };
 
-    setLastResult(provisionalResult);
-    setLastResultSaved(false);
-    setScreen('results');
+      setLastResult(result);
+      setLastResultSaved(false);
+      setScreen('results');
   };
 
   const viewLeaderboard = async () => {
@@ -413,21 +420,21 @@ export default function App() {
                     key={subject}
                     onClick={() => handleSubjectSelect(subject)}
                     className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
-                      subject === 'English' || subject === 'Math'
+                      subject === 'English' || subject === 'Math' || subject === 'Physics'
                         ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
                         : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
                     }`}
                   >
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                      subject === 'English' || subject === 'Math' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                      subject === 'English' || subject === 'Math' || subject === 'Physics' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
                     }`}>
                       <BookOpen className="w-6 h-6" />
                     </div>
                     <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
                     <p className="text-xs text-stone-500 mt-1">
-                      {subject === 'English' ? '60 Questions Available' : subject === 'Math' ? '60 Questions Available' : 'Coming Soon'}
+                      {subject === 'English' || subject === 'Math' || subject === 'Physics' ? '60 Questions Available' : 'Coming Soon'}
                     </p>
-                    {(subject === 'English' || subject === 'Math') && (
+                    {(subject === 'English' || subject === 'Math' || subject === 'Physics') && (
                       <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                     )}
                   </button>
@@ -458,11 +465,17 @@ export default function App() {
                 >
                   <div>
                     <h3 className="font-bold text-xl text-stone-800 uppercase">
-                      {selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE'}
+                      {selectedSubject === 'Math' 
+                        ? 'Fractions, Decimals, Approximations and Percentages' 
+                        : selectedSubject === 'Physics' 
+                        ? 'Units, Quantities and Instruments'
+                        : 'LEXIS AND STRUCTURE'}
                     </h3>
                     <p className="text-sm text-stone-500 mt-1">
                       {selectedSubject === 'Math' 
                         ? 'Percentages, Interest, Standard Form, Ratios, and more.' 
+                        : selectedSubject === 'Physics'
+                        ? 'Fundamental units, Dimensions, and Measuring Instruments.'
                         : 'Synonyms, Antonyms, Sentence Patterns, Mechanics'}
                     </p>
                   </div>
