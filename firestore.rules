@@ -31,10 +31,13 @@ service cloud.firestore {
     }
 
     function isValidScore(data) {
-      return data.userName is string && data.userName.size() > 0 &&
+      return hasOnlyAllowedFields(['userId', 'userName', 'email', 'score', 'totalQuestions', 'subject', 'topic', 'timestamp']) &&
+             data.userId == request.auth.uid &&
+             data.userName is string &&
+             isValidEmail(data.email) &&
              data.score is number &&
              data.totalQuestions is number &&
-             data.subject in ['English', 'Math', 'Physics'];
+             data.subject in ['English', 'Math', 'Physics', 'Government'];
     }
 
     // ===============================================================
@@ -48,17 +51,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Historical quiz attempts
-    match /quiz_attempts/{attemptId} {
-      allow read: if true;
-      allow create: if isValidScore(request.resource.data);
-      allow update, delete: if false;
-    }
-
-    // Cumulative student leaderboard
-    match /student_leaderboard/{emailId} {
-      allow read: if true;
-      allow write: if true; // Since there's no complex auth, anyone can write their score for now
+    // Leaderboard scores
+    match /leaderboard/{scoreId} {
+      // Leaderboard is public for authenticated users, but we should be careful with emails.
+      // If the app displays emails on the leaderboard, it's a choice.
+      // Usually, it's better to only show names.
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidScore(request.resource.data);
+      allow update, delete: if false; // Scores are immutable
     }
   }
 }
