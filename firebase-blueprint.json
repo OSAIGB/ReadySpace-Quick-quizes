@@ -1,42 +1,23 @@
 {
-  "entities": {
-    "User": {
-      "title": "User",
-      "description": "Student profile information",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "name", "email"]
-    },
-    "QuizScore": {
-      "title": "Quiz Score",
-      "description": "A record of a completed quiz attempt",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "email": { "type": "string" },
-        "score": { "type": "integer" },
-        "totalQuestions": { "type": "integer" },
-        "subject": { "type": "string", "enum": ["English", "Math", "Physics"] },
-        "topic": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "userName", "email", "score", "totalQuestions", "subject", "topic", "timestamp"]
+  "indexes": [
+    {
+      "collectionGroup": "quiz_attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "subject",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "topic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "score",
+          "order": "ASCENDING"
+        }
+      ]
     }
-  },
-  "firestore": {
-    "/users/{userId}": {
-      "schema": "User",
-      "description": "User profiles"
-    },
-    "/leaderboard/{scoreId}": {
-      "schema": "QuizScore",
-      "description": "Quiz scores for the leaderboard"
-    }
-  }
+  ],
+  "fieldOverrides": []
 }

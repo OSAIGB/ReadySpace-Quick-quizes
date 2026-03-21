@@ -34,8 +34,12 @@ import {
   limit, 
   onSnapshot, 
   serverTimestamp,
+  getCountFromServer,
+  getAggregateFromServer,
+  average
 } from 'firebase/firestore';
 import { db, auth, signInWithGoogle } from './firebase';
+import { saveStudentScore, fetchTopStudents, StudentStats } from './services/leaderboard';
 import CalculatorComponent from './components/Calculator';
 import MathInline from './components/MathInline';
 import { ENGLISH_QUESTIONS } from './data/questions';
@@ -66,11 +70,17 @@ export default function App() {
   const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showCalculatorHint, setShowCalculatorHint] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<QuizResult[]>([]);
+  const [leaderboard, setLeaderboard] = useState<StudentStats[]>([]);
   const [leaderboardSubjectFilter, setLeaderboardSubjectFilter] = useState<'All' | Subject>('All');
   const [leaderboardTopicFilter, setLeaderboardTopicFilter] = useState<string>('All');
   const [lastResult, setLastResult] = useState<QuizResult | null>(null);
-  const [lastResultSaved, setLastResultSaved] = useState(false);
+  const [scoreSaveError, setScoreSaveError] = useState<string | null>(null);
+  const [comparisonStats, setComparisonStats] = useState<{
+    totalStudents: number;
+    lowerScoresCount: number;
+    averageScore: number;
+    loading: boolean;
+  } | null>(null);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
@@ -110,21 +120,11 @@ export default function App() {
 
   useEffect(() => {
     if (screen === 'leaderboard') {
-      const constraints: any[] = [];
-      if (leaderboardSubjectFilter && leaderboardSubjectFilter !== 'All') {
-        constraints.push(where('subject', '==', leaderboardSubjectFilter));
-      }
-      if (leaderboardTopicFilter && leaderboardTopicFilter !== 'All') {
-        constraints.push(where('topic', '==', leaderboardTopicFilter));
-      }
-      const q = query(collection(db, 'leaderboard'), ...constraints, orderBy('score', 'desc'), limit(10));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
-        setLeaderboard(results);
+      fetchTopStudents(10).then(stats => {
+        setLeaderboard(stats);
       });
-      return unsubscribe;
     }
-  }, [screen, leaderboardSubjectFilter, leaderboardTopicFilter]);
+  }, [screen]);
 
   // Anti-cheat: Detect tab switching or window blur
   useEffect(() => {
@@ -242,13 +242,11 @@ export default function App() {
   };
 
   const finishQuiz = async () => {
-    const topic = selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : 'LEXIS AND STRUCTURE';
+    const topic = selectedSubject === 'Math' ? 'Fractions, Decimals, Approximations and Percentages' : selectedSubject === 'Physics' ? 'Fundamentals & Measurements' : 'LEXIS AND STRUCTURE';
 
-    // Build a result object; if user not authenticated we'll store locally and save on demand
-    const provisionalResult: QuizResult = {
-      userId: auth.currentUser?.uid || ('local_' + Math.random().toString(36).slice(2, 9)),
-      userName: auth.currentUser?.displayName || user?.name || 'Anonymous',
-      email: auth.currentUser?.email || user?.email || 'Unknown',
+    const resultData = {
+      userName: user?.name || 'Anonymous',
+      email: user?.email || 'Unknown',
       subject: selectedSubject!,
       topic,
       score: score,
@@ -257,10 +255,53 @@ export default function App() {
       cheated: cheatAttempts > 0
     };
 
-    // Save locally for now; user can publish to leaderboard when they choose
-    setLastResult(provisionalResult);
-    setLastResultSaved(false);
+    // Build a local result for the results screen
+    const localResult: QuizResult = {
+      ...resultData,
+      userId: 'local',
+    };
+    setLastResult(localResult);
+    setScoreSaveError(null);
     setScreen('results');
+
+    // Auto-save score to Firestore using the new service
+    try {
+      await saveStudentScore(resultData);
+    } catch (err: any) {
+      console.error('Failed to save score:', err);
+      setScoreSaveError('Could not save your cumulative score. Please check your connection.');
+    }
+
+    // Fetch comparison stats
+    setComparisonStats({ totalStudents: 0, lowerScoresCount: 0, averageScore: 0, loading: true });
+    try {
+      const coll = collection(db, 'quiz_attempts');
+      const topicFilters = [where('subject', '==', selectedSubject), where('topic', '==', topic)];
+      
+      const totalQ = query(coll, ...topicFilters);
+      const lowerScoresQ = query(coll, ...topicFilters, where('score', '<', score));
+      
+      const [totalSnap, lowerSnap, aggSnap] = await Promise.all([
+        getCountFromServer(totalQ),
+        getCountFromServer(lowerScoresQ),
+        getAggregateFromServer(totalQ, {
+          avgScore: average('score')
+        })
+      ]);
+      
+      const totalStudents = totalSnap.data().count;
+      
+      setComparisonStats({
+        totalStudents,
+        lowerScoresCount: lowerSnap.data().count,
+        averageScore: aggSnap.data().avgScore || 0,
+        loading: false
+      });
+    } catch (err) {
+      console.error("Failed to fetch comparison stats", err);
+      // Fallback
+      setComparisonStats({ totalStudents: 0, lowerScoresCount: 0, averageScore: 0, loading: false });
+    }
   };
 
   if (loading) {
@@ -486,16 +527,36 @@ export default function App() {
                         {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
                       </span>
                     </div>
-                    <button
-                      onClick={() => { localStorage.setItem('readyspace_calc_seen','1'); setShowCalculatorHint(false); setShowCalculator(true); }}
-                      aria-label="Open calculator"
-                      className="ml-2 p-2 rounded-md bg-stone-100 hover:bg-stone-200 transition-colors relative"
-                    >
-                      <Calculator className="w-4 h-4 text-stone-600" />
-                      {showCalculatorHint && (
-                        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                    <div className="relative flex items-center">
+                      <button
+                        onClick={() => { localStorage.setItem('readyspace_calc_seen','1'); setShowCalculatorHint(false); setShowCalculator(true); }}
+                        aria-label="Open calculator"
+                        className="ml-2 p-2 rounded-md bg-stone-100 hover:bg-stone-200 transition-colors relative"
+                      >
+                        <Calculator className="w-4 h-4 text-stone-600" />
+                        {showCalculatorHint && (
+                          <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+                        )}
+                      </button>
+                      {showCalculatorHint && currentQuestionIndex < 2 && (
+                        <div className="absolute right-0 top-full mt-3 w-56 bg-emerald-600 text-white text-xs p-3 rounded-xl shadow-xl z-50 cursor-default animate-pulse animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="absolute -top-1 right-3.5 w-3 h-3 bg-emerald-600 rotate-45 rounded-sm" />
+                          <div className="relative z-10 flex flex-col gap-2">
+                            <p className="font-medium text-left">Need a calculator? Click here to open it anytime during the quiz.</p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                localStorage.setItem('readyspace_calc_seen', '1');
+                                setShowCalculatorHint(false);
+                              }}
+                              className="text-[10px] w-full bg-emerald-700 hover:bg-emerald-800 py-1.5 rounded-lg transition-colors font-bold"
+                            >
+                              Got it, thanks!
+                            </button>
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </div>
                   </div>
                 </div>
                 
@@ -662,9 +723,51 @@ export default function App() {
                 </div>
                 
                 <div className="space-y-4 pt-4">
-                  <p className="text-stone-600">
-                    Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
-                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <p className="text-stone-600 text-lg">
+                      Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
+                    </p>
+                    {!scoreSaveError && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                        <CheckCircle2 className="w-3 h-3" /> Saved
+                      </span>
+                    )}
+                  </div>
+
+                  {scoreSaveError && (
+                    <div className="p-3 bg-amber-50 text-amber-700 rounded-xl text-sm flex items-center justify-center gap-2 border border-amber-100">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      {scoreSaveError}
+                    </div>
+                  )}
+                  
+                  {comparisonStats && !comparisonStats.loading && comparisonStats.totalStudents > 0 && (
+                    <div className="bg-emerald-50 rounded-2xl p-4 sm:p-6 text-left border border-emerald-100 flex flex-col gap-3">
+                      <h4 className="font-bold text-emerald-800 text-sm uppercase tracking-wider flex items-center gap-2">
+                        <Trophy className="w-4 h-4" /> Peer Comparison
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-emerald-600/70 font-bold uppercase tracking-wider mb-1">Average Score</p>
+                          <p className="text-xl font-black text-emerald-700">{comparisonStats.averageScore.toFixed(1)} <span className="text-sm font-medium">/ {currentQuestions.length}</span></p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-emerald-600/70 font-bold uppercase tracking-wider mb-1">Percentile</p>
+                          <p className="text-xl font-black text-emerald-700">Top {Math.max(1, Math.round(((comparisonStats.totalStudents - comparisonStats.lowerScoresCount) / comparisonStats.totalStudents) * 100))}%</p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-emerald-700 mt-2">
+                        You scored higher than <strong>{comparisonStats.lowerScoresCount}</strong> out of {comparisonStats.totalStudents} students who took this test.
+                      </p>
+                    </div>
+                  )}
+                  {comparisonStats?.loading && (
+                    <div className="flex items-center justify-center gap-2 text-stone-400 py-4">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-stone-400"></div>
+                      <span className="text-sm">Calculating percentiles...</span>
+                    </div>
+                  )}
+
                   {cheatAttempts > 0 && (
                     <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm flex items-center justify-center gap-2">
                       <ShieldAlert className="w-4 h-4" />
@@ -734,43 +837,7 @@ export default function App() {
                   <button onClick={() => setScreen('subjects')} className="p-2 hover:bg-stone-100 rounded-full transition-colors">
                     <ChevronRight className="w-5 h-5 sm:w-6 h-6 rotate-180 text-stone-400" />
                   </button>
-                  <h2 className="text-2xl sm:text-3xl font-bold text-stone-800 italic serif">Leaderboard</h2>
-                </div>
-                <div className="mt-3 flex items-center gap-3">
-                  <select value={leaderboardSubjectFilter} onChange={(e) => { setLeaderboardSubjectFilter(e.target.value as any); setLeaderboardTopicFilter('All'); }} className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="All">All Subjects</option>
-                    {subjects.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-
-                  <select value={leaderboardTopicFilter} onChange={(e) => setLeaderboardTopicFilter(e.target.value)} className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="All">All Topics</option>
-                    {leaderboardSubjectFilter === 'Math' && (
-                      <option value="Fractions, Decimals, Approximations and Percentages">Fractions, Decimals, Approximations and Percentages</option>
-                    )}
-                    {leaderboardSubjectFilter === 'English' && (
-                      <option value="LEXIS AND STRUCTURE">LEXIS AND STRUCTURE</option>
-                    )}
-                  </select>
-                </div>
-                <div className="mt-3 flex items-center gap-3">
-                  <select value={leaderboardSubjectFilter} onChange={(e) => { setLeaderboardSubjectFilter(e.target.value as any); setLeaderboardTopicFilter('All'); }} className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="All">All Subjects</option>
-                    {subjects.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-
-                  <select value={leaderboardTopicFilter} onChange={(e) => setLeaderboardTopicFilter(e.target.value)} className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="All">All Topics</option>
-                    {leaderboardSubjectFilter === 'Math' && (
-                      <option value="Fractions, Decimals, Approximations and Percentages">Fractions, Decimals, Approximations and Percentages</option>
-                    )}
-                    {leaderboardSubjectFilter === 'English' && (
-                      <option value="LEXIS AND STRUCTURE">LEXIS AND STRUCTURE</option>
-                    )}
-                  </select>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-stone-800 italic serif">Global Top Students</h2>
                 </div>
                 <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm inline-block self-start sm:self-auto">
                   Top 10 Students
@@ -781,30 +848,26 @@ export default function App() {
                 <div className="grid grid-cols-12 bg-stone-50 p-4 border-b border-stone-200 text-xs font-bold uppercase tracking-widest text-stone-400">
                   <div className="col-span-1">#</div>
                   <div className="col-span-5">Student</div>
-                  <div className="col-span-2 text-right">Score</div>
+                  <div className="col-span-2 text-right">Cumulative Score</div>
                   <div className="col-span-2 text-right">Email</div>
                   <div className="col-span-2 text-right">Status</div>
                 </div>
                 <div className="divide-y divide-stone-100">
                   {leaderboard.length > 0 ? leaderboard.map((res, idx) => (
-                    <div key={res.id} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
+                    <div key={res.email} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
                       <div className="col-span-1 font-mono text-stone-400">{idx + 1}</div>
                       <div className="col-span-5">
-                        <p className="font-bold text-stone-800">{res.userName}</p>
-                        <p className="text-[10px] text-stone-400">{res.subject} • {res.topic}</p>
+                        <p className="font-bold text-stone-800">{res.name}</p>
+                        <p className="text-[10px] text-stone-400">Total Quizzes Taken: {res.totalQuizzesTaken}</p>
                       </div>
                       <div className="col-span-2 text-right font-black text-emerald-600 text-base sm:text-lg">
-                        {res.score}
+                        {res.totalScore}
                       </div>
                       <div className="col-span-2 text-right text-[9px] text-stone-500 truncate px-1">
                         {res.email}
                       </div>
                       <div className="col-span-2 text-right">
-                        {res.cheated ? (
-                          <span className="text-[10px] bg-red-50 text-red-500 px-2 py-1 rounded-full font-bold uppercase">Flagged</span>
-                        ) : (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Verified</span>
-                        )}
+                        <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Active</span>
                       </div>
                     </div>
                   )) : (
