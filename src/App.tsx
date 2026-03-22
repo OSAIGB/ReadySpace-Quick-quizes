@@ -19,7 +19,8 @@ import {
   XCircle,
   ShieldAlert,
   Timer,
-  Info
+  Info,
+  Calculator
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -27,12 +28,19 @@ import {
   collection, 
   addDoc, 
   query, 
+  where,
   orderBy, 
   limit, 
   onSnapshot, 
   serverTimestamp,
+  getCountFromServer,
+  getAggregateFromServer,
+  average
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { saveStudentScore, fetchTopStudents, StudentStats } from './services/leaderboard';
+import CalculatorComponent from './components/Calculator';
+import MathInline from './components/MathInline';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
 import { PHYSICS_QUESTIONS } from './data/physics_questions';
@@ -60,7 +68,17 @@ export default function App() {
   const [quizStartTime, setQuizStartTime] = useState<number>(0);
   const [cheatAttempts, setCheatAttempts] = useState(0);
   const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
-  const [leaderboard, setLeaderboard] = useState<QuizResult[]>([]);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [showCalculatorHint, setShowCalculatorHint] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<StudentStats[]>([]);
+  const [lastResult, setLastResult] = useState<QuizResult | null>(null);
+  const [scoreSaveError, setScoreSaveError] = useState<string | null>(null);
+  const [comparisonStats, setComparisonStats] = useState<{
+    totalStudents: number;
+    lowerScoresCount: number;
+    averageScore: number;
+    loading: boolean;
+  } | null>(null);
   const [showGovtNotification, setShowGovtNotification] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
@@ -101,18 +119,17 @@ export default function App() {
 
   useEffect(() => {
     if (screen === 'leaderboard') {
-      const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
-        setLeaderboard(results);
+      fetchTopStudents(10).then(stats => {
+        setLeaderboard(stats);
       });
-      return unsubscribe;
     }
   }, [screen]);
 
   // Anti-cheat: Detect tab switching or window blur
   useEffect(() => {
     if (screen === 'quiz') {
+      const seen = localStorage.getItem('readyspace_calc_seen');
+      if (!seen) setShowCalculatorHint(true);
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'hidden') {
           handleCheatAttempt('Tab switched');
@@ -242,16 +259,46 @@ export default function App() {
       topic: topic,
       score: score,
       totalQuestions: currentQuestions.length,
-      timestamp: serverTimestamp(),
+      timestamp: Date.now(),
       cheated: cheatAttempts > 0
     };
 
+    setScreen('results');
+    setLastResult(result);
+    setScoreSaveError(null);
+    setComparisonStats({
+      totalStudents: 0,
+      lowerScoresCount: 0,
+      averageScore: 0,
+      loading: true
+    });
+
     try {
-      await addDoc(collection(db, 'leaderboard'), result);
-      setScreen('results');
+      await saveStudentScore(result);
+      
+      // Calculate comparison stats
+      const coll = collection(db, 'leaderboard');
+      const totalSnap = await getCountFromServer(coll);
+      const totalCount = totalSnap.data().count;
+      
+      const lowerSnap = await getCountFromServer(query(coll, where('score', '<', score)));
+      const lowerCount = lowerSnap.data().count;
+      
+      const avgSnap = await getAggregateFromServer(coll, {
+        avgScore: average('score')
+      });
+      const avgScore = avgSnap.data().avgScore || 0;
+
+      setComparisonStats({
+        totalStudents: totalCount,
+        lowerScoresCount: lowerCount,
+        averageScore: Math.round(avgScore),
+        loading: false
+      });
     } catch (err: any) {
-      setError("Failed to save result: " + err.message);
-      setScreen('results');
+      console.error("Score save error:", err);
+      setScoreSaveError(err.message);
+      setComparisonStats(prev => prev ? { ...prev, loading: false } : null);
     }
   };
 
@@ -498,6 +545,15 @@ export default function App() {
                     <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{currentQuestions[currentQuestionIndex].section}</span>
                   </div>
                   <div className="flex items-center gap-3">
+                    <div className="relative flex items-center">
+                      <button
+                        onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); setShowCalculator(true); }}
+                        aria-label="Open calculator"
+                        className={`p-1.5 sm:p-2 rounded-lg bg-stone-100 hover:bg-stone-200 transition-colors relative ${showCalculatorHint ? 'animate-pulse ring-2 ring-emerald-500 ring-offset-2' : ''}`}
+                      >
+                        <Calculator className="w-3.5 h-3.5 sm:w-4 h-4 text-stone-600" />
+                      </button>
+                    </div>
                     <div className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold">
                       Q{currentQuestionIndex + 1} / {currentQuestions.length}
                     </div>
@@ -528,7 +584,7 @@ export default function App() {
               {/* Question Card */}
               <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm space-y-4 sm:space-y-6">
                 <div className="text-base sm:text-xl font-medium text-stone-800 leading-relaxed markdown-body">
-                  <Markdown>{currentQuestions[currentQuestionIndex].text}</Markdown>
+                  <MathInline>{currentQuestions[currentQuestionIndex].text}</MathInline>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 sm:gap-3">
@@ -559,7 +615,7 @@ export default function App() {
                         onClick={() => handleAnswer(option)}
                         className={buttonClass}
                       >
-                        <span>{option}</span>
+                        <span><MathInline>{option}</MathInline></span>
                         {(showFeedback || hasBeenAnswered) && isCorrect && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
                         {(showFeedback || hasBeenAnswered) && isSelected && !isCorrect && <XCircle className="w-5 h-5 text-red-500" />}
                       </button>
@@ -676,6 +732,33 @@ export default function App() {
                   <p className="text-stone-600">
                     Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
                   </p>
+                  
+                  {comparisonStats && !comparisonStats.loading ? (
+                    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100 flex items-center justify-around gap-4 text-xs">
+                      <div className="text-center">
+                        <p className="text-stone-400 font-bold uppercase tracking-widest mb-1">Rank Info</p>
+                        <p className="text-stone-800 font-bold">You outperformed {Math.round((comparisonStats.lowerScoresCount / (comparisonStats.totalStudents || 1)) * 100)}% of students</p>
+                      </div>
+                      <div className="w-px h-8 bg-stone-200"></div>
+                      <div className="text-center">
+                        <p className="text-stone-400 font-bold uppercase tracking-widest mb-1">Global Average</p>
+                        <p className="text-stone-800 font-bold">{comparisonStats.averageScore}%</p>
+                      </div>
+                    </div>
+                  ) : comparisonStats?.loading ? (
+                    <div className="animate-pulse flex items-center justify-center gap-2 text-stone-400 text-xs italic">
+                      <div className="w-2 h-2 rounded-full bg-stone-300"></div>
+                      Calculating percentile rank...
+                    </div>
+                  ) : null}
+
+                  {scoreSaveError && (
+                    <div className="p-3 bg-red-50 text-red-600 rounded-xl text-xs flex items-center justify-center gap-2">
+                      <ShieldAlert className="w-4 h-4" />
+                      Couldn't save to the leaderboard. Check your connection.
+                    </div>
+                  )}
+
                   {cheatAttempts > 0 && (
                     <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm flex items-center justify-center gap-2">
                       <ShieldAlert className="w-4 h-4" />
@@ -710,7 +793,7 @@ export default function App() {
                         <div key={idx} className={`p-4 rounded-2xl border ${ans.isCorrect ? 'bg-emerald-50/50 border-emerald-100' : 'bg-red-50/50 border-red-100'}`}>
                           <p className="text-sm font-bold text-stone-400 mb-2">Question {idx + 1}</p>
                           <div className="text-stone-800 font-medium mb-3 markdown-body">
-                            <Markdown>{question.text}</Markdown>
+                            <MathInline>{question.text}</MathInline>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                             <div className="flex items-center gap-2">
@@ -762,24 +845,20 @@ export default function App() {
                 </div>
                 <div className="divide-y divide-stone-100">
                   {leaderboard.length > 0 ? leaderboard.map((res, idx) => (
-                    <div key={res.id} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
+                    <div key={res.email} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
                       <div className="col-span-1 font-mono text-stone-400">{idx + 1}</div>
                       <div className="col-span-5">
-                        <p className="font-bold text-stone-800">{res.userName}</p>
-                        <p className="text-[10px] text-stone-400">{res.subject} • {res.topic}</p>
+                        <p className="font-bold text-stone-800">{res.name}</p>
+                        <p className="text-[10px] text-stone-400">Total Quizzes Taken: {res.totalQuizzesTaken}</p>
                       </div>
                       <div className="col-span-2 text-right font-black text-emerald-600 text-base sm:text-lg">
-                        {res.score}
+                        {res.totalScore}
                       </div>
                       <div className="col-span-2 text-right text-[9px] text-stone-500 truncate px-1">
                         {res.email}
                       </div>
                       <div className="col-span-2 text-right">
-                        {res.cheated ? (
-                          <span className="text-[10px] bg-red-50 text-red-500 px-2 py-1 rounded-full font-bold uppercase">Flagged</span>
-                        ) : (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Verified</span>
-                        )}
+                        <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Active</span>
                       </div>
                     </div>
                   )) : (
@@ -789,6 +868,40 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showCalculatorHint && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[70] flex items-center justify-center px-4 bg-stone-900/30">
+              <motion.div initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }} className="w-[min(640px,100%)] max-w-lg bg-white rounded-2xl border border-stone-200 p-6 shadow-2xl text-stone-800">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <div className="animate-pulse">
+                      <Calculator className="w-8 h-8 text-emerald-600" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-bold text-lg">Calculator Available</h4>
+                    <p className="text-sm text-stone-600 mt-2">A calculator icon is available at the top-right of the quiz header — tap it to open the built-in calculator. You can perform calculations without leaving the app.</p>
+                    <p className="text-xs text-stone-400 mt-2">The icon will blink to help you identify it.</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-end gap-3">
+                  <button onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); }} className="px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 font-bold">Got it</button>
+                  <button onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); setShowCalculator(true); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold">Open Calculator</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showCalculator && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-stone-900/40">
+              <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}>
+                <CalculatorComponent onClose={() => setShowCalculator(false)} />
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
