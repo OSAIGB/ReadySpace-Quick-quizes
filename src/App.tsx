@@ -31,12 +31,16 @@ import {
   limit, 
   onSnapshot, 
   serverTimestamp,
+  getDocs,
+  where
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth, signInAsStudent, logout } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
 import { PHYSICS_QUESTIONS } from './data/physics_questions';
 import { GOVT_QUESTIONS } from './data/govt_questions';
+import { LITERATURE_QUESTIONS } from './data/literature_questions';
 import { Question, QuizResult, Subject } from './types';
 
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
@@ -44,13 +48,10 @@ type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard
 export default function App() {
   const [user, setUser] = useState<{ name: string, email: string, uid: string } | null>(null);
   const [screen, setScreen] = useState<Screen>('auth');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nickname, setNickname] = useState('');
   
-  // Simple Name Entry State
-  const [tempName, setTempName] = useState('');
-  const [tempEmail, setTempEmail] = useState('');
-
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
@@ -62,11 +63,30 @@ export default function App() {
   const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
   const [leaderboard, setLeaderboard] = useState<QuizResult[]>([]);
   const [showGovtNotification, setShowGovtNotification] = useState(false);
+  const [userRank, setUserRank] = useState<number | null>(null);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
   // Subjects
-  const subjects: Subject[] = ['English', 'Math', 'Physics', 'Government', 'Chemistry', 'Biology', 'C.R.S', 'Economics'];
+  const subjects: Subject[] = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Chemistry', 'Biology', 'C.R.S', 'Economics'];
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          name: firebaseUser.displayName || 'Student',
+          email: firebaseUser.email || 'anonymous@readyspace.app',
+          uid: firebaseUser.uid
+        });
+        if (screen === 'auth') setScreen('subjects');
+      } else {
+        setUser(null);
+        setScreen('auth');
+      }
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -86,21 +106,7 @@ export default function App() {
   }, [screen, timeLeft]);
 
   useEffect(() => {
-    // Load local user if exists
-    const savedName = localStorage.getItem('readyspace_user_name');
-    const savedEmail = localStorage.getItem('readyspace_user_email');
-    if (savedName && savedEmail) {
-      setUser({ 
-        name: savedName, 
-        email: savedEmail,
-        uid: 'local_' + Math.random().toString(36).substr(2, 9) 
-      });
-      setScreen('subjects');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (screen === 'leaderboard') {
+    if (screen === 'leaderboard' || screen === 'results') {
       const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
@@ -139,29 +145,30 @@ export default function App() {
     setTimeout(() => setError(null), 3000);
   };
 
-  const handleEnter = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
-      setError("Please enter your full name and a valid email.");
+    if (nickname.trim().length < 2) {
+      setError("Please enter a nickname (at least 2 characters).");
       return;
     }
-    const newUser = { 
-      name: tempName, 
-      email: tempEmail,
-      uid: 'local_' + Math.random().toString(36).substr(2, 9) 
-    };
-    setUser(newUser);
-    localStorage.setItem('readyspace_user_name', tempName);
-    localStorage.setItem('readyspace_user_email', tempEmail);
-    setScreen('subjects');
-    setShowGovtNotification(true);
+    setLoading(true);
+    try {
+      await signInAsStudent(nickname);
+      setShowGovtNotification(true);
+    } catch (err: any) {
+      setError("Failed to sign in: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('readyspace_user_name');
-    localStorage.removeItem('readyspace_user_email');
-    setScreen('auth');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setScreen('auth');
+    } catch (err: any) {
+      setError("Failed to logout: " + err.message);
+    }
   };
 
   const handleSubjectSelect = (subject: Subject) => {
@@ -179,6 +186,7 @@ export default function App() {
     if (selectedSubject === 'Math') questions = MATH_QUESTIONS;
     else if (selectedSubject === 'Physics') questions = PHYSICS_QUESTIONS;
     else if (selectedSubject === 'Government') questions = GOVT_QUESTIONS;
+    else if (selectedSubject === 'Literature') questions = LITERATURE_QUESTIONS;
     else questions = ENGLISH_QUESTIONS;
 
     setCurrentQuestions(questions);
@@ -233,6 +241,7 @@ export default function App() {
     if (selectedSubject === 'Math') topic = 'Fractions, Decimals, Approximations and Percentages';
     else if (selectedSubject === 'Physics') topic = 'Units, Quantities and Instruments';
     else if (selectedSubject === 'Government') topic = 'Definition, Concepts and Political Processes';
+    else if (selectedSubject === 'Literature') topic = 'Drama: Types and Techniques';
 
     const result: QuizResult = {
       userId: user?.uid || 'anonymous',
@@ -248,8 +257,19 @@ export default function App() {
 
     try {
       await addDoc(collection(db, 'leaderboard'), result);
+      
+      // Calculate rank
+      const q = query(
+        collection(db, 'leaderboard'), 
+        where('subject', '==', selectedSubject),
+        where('score', '>', score)
+      );
+      const snapshot = await getDocs(q);
+      setUserRank(snapshot.size + 1);
+      
       setScreen('results');
     } catch (err: any) {
+      console.error("Error saving result:", err);
       setError("Failed to save result: " + err.message);
       setScreen('results');
     }
@@ -322,46 +342,36 @@ export default function App() {
             >
               <div className="text-center mb-6 sm:mb-8">
                 <h2 className="text-xl sm:text-2xl font-bold text-stone-800 italic serif">Welcome to ReadySpace</h2>
-                <p className="text-sm sm:text-base text-stone-500 mt-2">Enter your name to start practicing</p>
+                <p className="text-sm sm:text-base text-stone-500 mt-2">Enter your nickname to start practicing and compete on the leaderboard</p>
               </div>
 
-              <form onSubmit={handleEnter} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Your Name</label>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Your Nickname</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
                     <input 
                       required
                       type="text"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
-                      placeholder="Enter your full name"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Student Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
-                      required
-                      type="email"
-                      value={tempEmail}
-                      onChange={(e) => setTempEmail(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
-                      placeholder="Enter your email address"
+                      placeholder="Enter your nickname"
                     />
                   </div>
                 </div>
 
                 <button 
                   type="submit"
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-200 mt-4"
+                  disabled={loading}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-200 mt-4 disabled:opacity-50"
                 >
-                  Enter Portal
+                  {loading ? 'Entering Portal...' : 'Enter Portal'}
                 </button>
+                
+                <p className="text-[10px] text-center text-stone-400 mt-4">
+                  By entering, you agree to our terms and conditions.
+                </p>
               </form>
             </motion.div>
           )}
@@ -661,6 +671,15 @@ export default function App() {
                   <Trophy className="w-8 h-8 sm:w-12 h-12" />
                 </div>
                 <h2 className="text-2xl sm:text-4xl font-bold text-stone-800 italic serif">Quiz Completed!</h2>
+                
+                {userRank && (
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                    <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-1">Your Current Rank</p>
+                    <p className="text-2xl font-black text-emerald-700">#{userRank}</p>
+                    <p className="text-[10px] text-emerald-600 mt-1">among all students in {selectedSubject}</p>
+                  </div>
+                )}
+
                 <div className="flex justify-center gap-8 sm:gap-12 py-6 sm:py-8 border-y border-stone-100">
                   <div className="text-center">
                     <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-stone-400 mb-1">Your Score</p>
@@ -695,8 +714,30 @@ export default function App() {
                     onClick={() => setScreen('leaderboard')}
                     className="flex-1 py-4 bg-white border border-stone-200 text-stone-700 font-bold rounded-2xl hover:bg-stone-50 transition-all"
                   >
-                    View Leaderboard
+                    View Full Leaderboard
                   </button>
+                </div>
+
+                {/* Mini Leaderboard */}
+                <div className="mt-12 space-y-4">
+                  <h3 className="text-xl font-bold text-stone-800 italic serif text-left">Top Performers</h3>
+                  <div className="bg-stone-50 rounded-2xl border border-stone-100 overflow-hidden">
+                    {leaderboard.slice(0, 5).map((res, idx) => (
+                      <div key={res.id} className={`flex items-center justify-between p-4 ${idx !== 4 ? 'border-b border-stone-100' : ''} ${res.userId === user?.uid ? 'bg-emerald-50/50' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-stone-400 text-xs w-4">{idx + 1}</span>
+                          <div className="text-left">
+                            <p className="font-bold text-stone-800 text-sm">{res.userName}</p>
+                            <p className="text-[10px] text-stone-400">{res.subject}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-emerald-600 text-lg">{res.score}</p>
+                          <p className="text-[9px] text-stone-400">Score</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Review Answers Section */}

@@ -37,7 +37,7 @@ service cloud.firestore {
              isValidEmail(data.email) &&
              data.score is number &&
              data.totalQuestions is number &&
-             data.subject in ['English', 'Math', 'Physics', 'Government'];
+             data.subject in ['English', 'Math', 'Physics', 'Government', 'Literature'];
     }
 
     // ===============================================================
