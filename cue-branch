@@ -1,7 +1,0 @@
-[33m82d125b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mrescue-branch[m[33m)[m HEAD@{0}: commit: Saved local Physics quiz, Calculator, and Readyspace app backup
-[33m9f5e8a3[m[33m ([m[1;32mmain[m[33m)[m HEAD@{1}: merge main: Fast-forward
-[33ma5d3d35[m HEAD@{2}: checkout: moving from main to rescue-branch
-[33m9f5e8a3[m[33m ([m[1;32mmain[m[33m)[m HEAD@{3}: pull origin main: Fast-forward
-[33ma5d3d35[m HEAD@{4}: reset: moving to origin/main
-[33ma5d3d35[m HEAD@{5}: commit: update quiz features + firebase config
-[33m521ec8f[m HEAD@{6}: clone: from https://github.com/OSAIGB/ReadySpace-Quick-quizes.git

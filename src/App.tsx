@@ -19,8 +19,7 @@ import {
   XCircle,
   ShieldAlert,
   Timer,
-  Info,
-  Calculator
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -28,29 +27,21 @@ import {
   collection, 
   addDoc, 
   query, 
-  where,
   orderBy, 
   limit, 
   onSnapshot, 
   serverTimestamp,
-  getCountFromServer,
-  getAggregateFromServer,
-  average
+  getDocs,
+  where
 } from 'firebase/firestore';
-import { db, loginAnonymously, auth } from './firebase';
-import { 
-  fetchTopStudents, 
-  isUsernameAvailable, 
-  createUserProfile, 
-  StudentStats 
-} from './services/leaderboard';
-import CalculatorComponent from './components/Calculator';
-import MathInline from './components/MathInline';
+import { db, auth, signInAsStudent, logout } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
 import { PHYSICS_QUESTIONS } from './data/physics_questions';
 import { GOVT_QUESTIONS } from './data/govt_questions';
 import { LITERATURE_QUESTIONS } from './data/literature_questions';
+import { IDIOM_QUESTIONS } from './data/idiom_questions';
 import { Question, QuizResult, Subject } from './types';
 
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
@@ -58,13 +49,10 @@ type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard
 export default function App() {
   const [user, setUser] = useState<{ name: string, email: string, uid: string } | null>(null);
   const [screen, setScreen] = useState<Screen>('auth');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nickname, setNickname] = useState('');
   
-  // Simple Name Entry State
-  const [tempName, setTempName] = useState('');
-  const [tempEmail, setTempEmail] = useState('');
-
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
@@ -74,23 +62,34 @@ export default function App() {
   const [quizStartTime, setQuizStartTime] = useState<number>(0);
   const [cheatAttempts, setCheatAttempts] = useState(0);
   const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
-  const [showCalculator, setShowCalculator] = useState(false);
-  const [showCalculatorHint, setShowCalculatorHint] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<StudentStats[]>([]);
-  const [lastResult, setLastResult] = useState<QuizResult | null>(null);
-  const [scoreSaveError, setScoreSaveError] = useState<string | null>(null);
-  const [comparisonStats, setComparisonStats] = useState<{
-    totalStudents: number;
-    lowerScoresCount: number;
-    averageScore: number;
-    loading: boolean;
-  } | null>(null);
+  const [leaderboard, setLeaderboard] = useState<QuizResult[]>([]);
   const [showGovtNotification, setShowGovtNotification] = useState(false);
+  const [showIdiomNotification, setShowIdiomNotification] = useState(false);
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
   // Subjects
   const subjects: Subject[] = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Chemistry', 'Biology', 'C.R.S', 'Economics'];
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          name: firebaseUser.displayName || 'Student',
+          email: firebaseUser.email || 'anonymous@readyspace.app',
+          uid: firebaseUser.uid
+        });
+        if (screen === 'auth') setScreen('subjects');
+      } else {
+        setUser(null);
+        setScreen('auth');
+      }
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -110,44 +109,19 @@ export default function App() {
   }, [screen, timeLeft]);
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const firebaseUser = await loginAnonymously();
-        console.log("Logged in anonymously:", firebaseUser.uid);
-      } catch (err) {
-        console.error("Auto login failed:", err);
-      }
-    };
-    initAuth();
-  }, []);
-
-  useEffect(() => {
-    // Load local user if exists
-    const savedName = localStorage.getItem('readyspace_user_name');
-    const savedEmail = localStorage.getItem('readyspace_user_email');
-    if (savedName && savedEmail) {
-      setUser({ 
-        name: savedName, 
-        email: savedEmail,
-        uid: 'local_' + Math.random().toString(36).substr(2, 9) 
+    if (screen === 'leaderboard' || screen === 'results') {
+      const q = query(collection(db, 'leaderboard'), orderBy('score', 'desc'), limit(10));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuizResult));
+        setLeaderboard(results);
       });
-      setScreen('subjects');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (screen === 'leaderboard') {
-      fetchTopStudents(10).then(stats => {
-        setLeaderboard(stats);
-      });
+      return unsubscribe;
     }
   }, [screen]);
 
   // Anti-cheat: Detect tab switching or window blur
   useEffect(() => {
     if (screen === 'quiz') {
-      const seen = localStorage.getItem('readyspace_calc_seen');
-      if (!seen) setShowCalculatorHint(true);
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'hidden') {
           handleCheatAttempt('Tab switched');
@@ -174,58 +148,36 @@ export default function App() {
     setTimeout(() => setError(null), 3000);
   };
 
-  const handleEnter = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
-      setError("Please enter your full name and a valid email.");
+    if (nickname.trim().length < 2) {
+      setError("Please enter a nickname (at least 2 characters).");
       return;
     }
-    
     setLoading(true);
     try {
-      console.log("Starting anonymous login...");
-      // 1. Login anonymously first to be authenticated
-      const firebaseUser = await loginAnonymously();
-      console.log("Logged in as:", firebaseUser.uid);
-      
-      // 2. Check if username is available (authenticated required by rules)
-      console.log("Checking availability for:", tempName);
-      const available = await isUsernameAvailable(tempName, firebaseUser.uid);
-      console.log("Availability:", available);
-      
-      if (!available) {
-        setError("This username is already taken. Please choose another.");
-        setLoading(false);
-        return;
-      }
-
-      // 3. Create/Update user profile
-      await createUserProfile(firebaseUser.uid, { name: tempName, email: tempEmail });
-      console.log("Profile created successfully");
-      
-      const newUser = { name: tempName, email: tempEmail, uid: firebaseUser.uid };
-      setUser(newUser);
-      localStorage.setItem('readyspace_user_name', tempName);
-      localStorage.setItem('readyspace_user_email', tempEmail);
-      setScreen('subjects');
+      await signInAsStudent(nickname);
       setShowGovtNotification(true);
+      setShowIdiomNotification(true);
     } catch (err: any) {
-      console.error(err);
-      setError("Authentication failed: " + err.message);
+      setError("Failed to sign in: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('readyspace_user_name');
-    localStorage.removeItem('readyspace_user_email');
-    setScreen('auth');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setScreen('auth');
+    } catch (err: any) {
+      setError("Failed to logout: " + err.message);
+    }
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature') {
+    const available = ['English', 'Math', 'Physics', 'Government', 'Literature'];
+    if (!available.includes(subject)) {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -234,14 +186,33 @@ export default function App() {
     setScreen('topics');
   };
 
-  const startQuiz = () => {
+  const startQuiz = (topic?: string) => {
     let questions: Question[] = [];
-    if (selectedSubject === 'Math') questions = MATH_QUESTIONS;
-    else if (selectedSubject === 'Physics') questions = PHYSICS_QUESTIONS;
-    else if (selectedSubject === 'Government') questions = GOVT_QUESTIONS;
-    else if (selectedSubject === 'Literature') questions = LITERATURE_QUESTIONS;
-    else questions = ENGLISH_QUESTIONS;
+    let finalTopic = topic || '';
 
+    if (selectedSubject === 'Math') {
+      questions = MATH_QUESTIONS;
+      finalTopic = 'Fractions, Decimals, Approximations and Percentages';
+    } else if (selectedSubject === 'Physics') {
+      questions = PHYSICS_QUESTIONS;
+      finalTopic = 'Units, Quantities and Instruments';
+    } else if (selectedSubject === 'Government') {
+      questions = GOVT_QUESTIONS;
+      finalTopic = 'Definition, Concepts and Political Processes';
+    } else if (selectedSubject === 'Literature') {
+      questions = LITERATURE_QUESTIONS;
+      finalTopic = 'Drama: Types and Techniques';
+    } else if (selectedSubject === 'English') {
+      if (topic === 'Idioms') {
+        questions = IDIOM_QUESTIONS;
+        finalTopic = 'Idioms';
+      } else {
+        questions = ENGLISH_QUESTIONS;
+        finalTopic = 'LEXIS AND STRUCTURE';
+      }
+    }
+
+    setSelectedTopic(finalTopic);
     setCurrentQuestions(questions);
     setScreen('quiz');
     setCurrentQuestionIndex(0);
@@ -290,77 +261,35 @@ export default function App() {
   };
 
   const finishQuiz = async () => {
-    let topic = 'LEXIS AND STRUCTURE';
-    if (selectedSubject === 'Math') topic = 'Fractions, Decimals, Approximations and Percentages';
-    else if (selectedSubject === 'Physics') topic = 'Units, Quantities and Instruments';
-    else if (selectedSubject === 'Government') topic = 'Definition, Concepts and Political Processes';
-    else if (selectedSubject === 'Literature') topic = 'Introduction to Literature and Literary Terms';
-
     const result: QuizResult = {
       userId: user?.uid || 'anonymous',
-      userName: user?.name || 'Student',
-      email: user?.email || 'anonymous@readyspace.com',
-      subject: selectedSubject || 'Physics',
-      topic: topic || 'General Physics',
+      userName: user?.name || 'Anonymous',
+      email: user?.email || 'Unknown',
+      subject: selectedSubject!,
+      topic: selectedTopic || 'General',
       score: score,
-      totalQuestions: currentQuestions.length || 60,
-      timestamp: Date.now(),
+      totalQuestions: currentQuestions.length,
+      timestamp: serverTimestamp(),
       cheated: cheatAttempts > 0
     };
 
-    setScreen('results');
-    setLastResult(result);
-    setScoreSaveError(null);
-    setComparisonStats({
-      totalStudents: 0,
-      lowerScoresCount: 0,
-      averageScore: 0,
-      loading: true
-    });
-
     try {
-      if (!auth.currentUser) {
-        console.warn("No authenticated user, trying to save as anonymous");
-      }
-
-      await addDoc(collection(db, "leaderboard"), {
-        userId: auth.currentUser?.uid || user?.uid || 'anonymous',
-        userName: user?.name || 'Student',
-        email: user?.email || 'anonymous@readyspace.com',
-        score: score,
-        totalQuestions: currentQuestions.length || 60,
-        subject: selectedSubject || 'Physics',
-        topic: topic || 'General Physics',
-        cheated: cheatAttempts > 0,
-        timestamp: serverTimestamp()
-      });
+      await addDoc(collection(db, 'leaderboard'), result);
       
-      // Calculate comparison stats for this subject only
-      const coll = collection(db, 'leaderboard');
-      const totalSnap = await getCountFromServer(query(coll, where('subject', '==', selectedSubject)));
-      const totalCount = totalSnap.data().count;
-      
-      const lowerSnap = await getCountFromServer(query(coll, 
+      // Calculate rank
+      const q = query(
+        collection(db, 'leaderboard'), 
         where('subject', '==', selectedSubject),
-        where('score', '<', score)
-      ));
-      const lowerCount = lowerSnap.data().count;
+        where('score', '>', score)
+      );
+      const snapshot = await getDocs(q);
+      setUserRank(snapshot.size + 1);
       
-      const avgSnap = await getAggregateFromServer(query(coll, where('subject', '==', selectedSubject)), {
-        avgScore: average('score')
-      });
-      const avgScore = avgSnap.data().avgScore || 0;
-
-      setComparisonStats({
-        totalStudents: totalCount,
-        lowerScoresCount: lowerCount,
-        averageScore: Math.round(avgScore),
-        loading: false
-      });
+      setScreen('results');
     } catch (err: any) {
-      console.error("Score save error:", err);
-      setScoreSaveError(err.message);
-      setComparisonStats(prev => prev ? { ...prev, loading: false } : null);
+      console.error("Error saving result:", err);
+      setError("Failed to save result: " + err.message);
+      setScreen('results');
     }
   };
 
@@ -408,7 +337,7 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
-        <AnimatePresence>
+        <AnimatePresence mode="wait">
           {error && (
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
@@ -420,9 +349,6 @@ export default function App() {
               <p className="text-sm font-medium">{error}</p>
             </motion.div>
           )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="wait">
 
           {screen === 'auth' && (
             <motion.div 
@@ -434,46 +360,36 @@ export default function App() {
             >
               <div className="text-center mb-6 sm:mb-8">
                 <h2 className="text-xl sm:text-2xl font-bold text-stone-800 italic serif">Welcome to ReadySpace</h2>
-                <p className="text-sm sm:text-base text-stone-500 mt-2">Enter your name to start practicing</p>
+                <p className="text-sm sm:text-base text-stone-500 mt-2">Enter your nickname to start practicing and compete on the leaderboard</p>
               </div>
 
-              <form onSubmit={handleEnter} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Your Name</label>
+                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Your Nickname</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
                     <input 
                       required
                       type="text"
-                      value={tempName}
-                      onChange={(e) => setTempName(e.target.value)}
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
-                      placeholder="Enter your full name"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Student Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
-                      required
-                      type="email"
-                      value={tempEmail}
-                      onChange={(e) => setTempEmail(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all"
-                      placeholder="Enter your email address"
+                      placeholder="Enter your nickname"
                     />
                   </div>
                 </div>
 
                 <button 
                   type="submit"
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-200 mt-4"
+                  disabled={loading}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-200 mt-4 disabled:opacity-50"
                 >
-                  Enter Portal
+                  {loading ? 'Entering Portal...' : 'Enter Portal'}
                 </button>
+                
+                <p className="text-[10px] text-center text-stone-400 mt-4">
+                  By entering, you agree to our terms and conditions.
+                </p>
               </form>
             </motion.div>
           )}
@@ -508,6 +424,27 @@ export default function App() {
                     </div>
                   </motion.div>
                 )}
+                {showIdiomNotification && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9, y: -20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: -20 }}
+                    className="absolute -top-24 left-1/2 -translate-x-1/2 z-50 w-full max-w-xs"
+                  >
+                    <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-blue-500">
+                      <div className="flex items-center gap-2">
+                        <Info className="w-5 h-5" />
+                        <span className="text-xs font-bold uppercase tracking-wider">New: 30 English Idioms Added!</span>
+                      </div>
+                      <button 
+                        onClick={() => setShowIdiomNotification(false)}
+                        className="p-1 hover:bg-blue-500 rounded-lg transition-colors"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
               </AnimatePresence>
 
               <div className="text-center">
@@ -516,30 +453,34 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {subjects.map((subject) => (
-                  <button
-                    key={subject}
-                    onClick={() => handleSubjectSelect(subject)}
-                    className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature'
-                        ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
-                        : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
-                    }`}>
-                      <BookOpen className="w-6 h-6" />
-                    </div>
-                    <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
-                    <p className="text-xs text-stone-500 mt-1">
-                      {subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? '60 Questions Available' : 'Coming Soon'}
-                    </p>
-                    {(subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature') && (
-                      <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
-                    )}
-                  </button>
-                ))}
+                {subjects.map((subject) => {
+                  const available = ['English', 'Math', 'Physics', 'Government', 'Literature'];
+                  const isAvailable = available.includes(subject);
+                  return (
+                    <button
+                      key={subject}
+                      onClick={() => handleSubjectSelect(subject)}
+                      className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
+                        isAvailable
+                          ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
+                          : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
+                      }`}
+                    >
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                        isAvailable ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                      }`}>
+                        <BookOpen className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
+                      <p className="text-xs text-stone-500 mt-1">
+                        {isAvailable ? '60+ Questions Available' : 'Coming Soon'}
+                      </p>
+                      {isAvailable && (
+                        <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </motion.div>
           )}
@@ -560,38 +501,67 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
-                <button
-                  onClick={startQuiz}
-                  className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
-                >
-                  <div>
-                    <h3 className="font-bold text-xl text-stone-800 uppercase">
-                      {selectedSubject === 'Math' 
-                        ? 'Fractions, Decimals, Approximations and Percentages' 
-                        : selectedSubject === 'Physics' 
-                        ? 'Units, Quantities and Instruments'
-                        : selectedSubject === 'Government'
-                        ? 'Definition, Concepts and Political Processes'
-                        : selectedSubject === 'Literature'
-                        ? 'Introduction to Literature and Literary Terms'
-                        : 'LEXIS AND STRUCTURE'}
-                    </h3>
-                    <p className="text-sm text-stone-500 mt-1">
-                      {selectedSubject === 'Math' 
-                        ? 'Percentages, Interest, Standard Form, Ratios, and more.' 
-                        : selectedSubject === 'Physics'
-                        ? 'Fundamental units, Dimensions, and Measuring Instruments.'
-                        : selectedSubject === 'Government'
-                        ? 'Power, Sovereignty, State, Nation, and Socialization.'
-                        : selectedSubject === 'Literature'
-                        ? 'Definition, genres, and basic literary analysis terms.'
-                        : 'Synonyms, Antonyms, Sentence Patterns, Mechanics'}
-                    </p>
-                  </div>
-                  <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </button>
+                {selectedSubject === 'English' ? (
+                  <>
+                    <button
+                      onClick={() => startQuiz('LEXIS AND STRUCTURE')}
+                      className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
+                    >
+                      <div>
+                        <h3 className="font-bold text-xl text-stone-800 uppercase">LEXIS AND STRUCTURE</h3>
+                        <p className="text-sm text-stone-500 mt-1">Synonyms, Antonyms, Sentence Patterns, Mechanics</p>
+                      </div>
+                      <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                        <ChevronRight className="w-5 h-5" />
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => startQuiz('Idioms')}
+                      className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
+                    >
+                      <div>
+                        <h3 className="font-bold text-xl text-stone-800 uppercase">Idioms</h3>
+                        <p className="text-sm text-stone-500 mt-1">Common English idioms and their interpretations</p>
+                      </div>
+                      <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                        <ChevronRight className="w-5 h-5" />
+                      </div>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => startQuiz()}
+                    className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
+                  >
+                    <div>
+                      <h3 className="font-bold text-xl text-stone-800 uppercase">
+                        {selectedSubject === 'Math' 
+                          ? 'Fractions, Decimals, Approximations and Percentages' 
+                          : selectedSubject === 'Physics' 
+                          ? 'Units, Quantities and Instruments'
+                          : selectedSubject === 'Government'
+                          ? 'Definition, Concepts and Political Processes'
+                          : selectedSubject === 'Literature'
+                          ? 'Drama: Types and Techniques'
+                          : 'General Practice'}
+                      </h3>
+                      <p className="text-sm text-stone-500 mt-1">
+                        {selectedSubject === 'Math' 
+                          ? 'Percentages, Interest, Standard Form, Ratios, and more.' 
+                          : selectedSubject === 'Physics'
+                          ? 'Fundamental units, Dimensions, and Measuring Instruments.'
+                          : selectedSubject === 'Government'
+                          ? 'Power, Sovereignty, State, Nation, and Socialization.'
+                          : selectedSubject === 'Literature'
+                          ? 'Drama types, principles, and techniques.'
+                          : 'Practice questions for your selected subject.'}
+                      </p>
+                    </div>
+                    <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                      <ChevronRight className="w-5 h-5" />
+                    </div>
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
@@ -614,15 +584,6 @@ export default function App() {
                     <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest">{currentQuestions[currentQuestionIndex].section}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="relative flex items-center">
-                      <button
-                        onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); setShowCalculator(true); }}
-                        aria-label="Open calculator"
-                        className={`p-1.5 sm:p-2 rounded-lg bg-stone-100 hover:bg-stone-200 transition-colors relative ${showCalculatorHint ? 'animate-pulse ring-2 ring-emerald-500 ring-offset-2' : ''}`}
-                      >
-                        <Calculator className="w-3.5 h-3.5 sm:w-4 h-4 text-stone-600" />
-                      </button>
-                    </div>
                     <div className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold">
                       Q{currentQuestionIndex + 1} / {currentQuestions.length}
                     </div>
@@ -653,7 +614,7 @@ export default function App() {
               {/* Question Card */}
               <div className="bg-white p-4 sm:p-6 rounded-3xl border border-stone-200 shadow-sm space-y-4 sm:space-y-6">
                 <div className="text-base sm:text-xl font-medium text-stone-800 leading-relaxed markdown-body">
-                  <MathInline>{currentQuestions[currentQuestionIndex].text}</MathInline>
+                  <Markdown>{currentQuestions[currentQuestionIndex].text}</Markdown>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 sm:gap-3">
@@ -684,7 +645,7 @@ export default function App() {
                         onClick={() => handleAnswer(option)}
                         className={buttonClass}
                       >
-                        <span><MathInline>{option}</MathInline></span>
+                        <span>{option}</span>
                         {(showFeedback || hasBeenAnswered) && isCorrect && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
                         {(showFeedback || hasBeenAnswered) && isSelected && !isCorrect && <XCircle className="w-5 h-5 text-red-500" />}
                       </button>
@@ -786,6 +747,15 @@ export default function App() {
                   <Trophy className="w-8 h-8 sm:w-12 h-12" />
                 </div>
                 <h2 className="text-2xl sm:text-4xl font-bold text-stone-800 italic serif">Quiz Completed!</h2>
+                
+                {userRank && (
+                  <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                    <p className="text-xs font-bold uppercase tracking-widest text-emerald-600 mb-1">Your Current Rank</p>
+                    <p className="text-2xl font-black text-emerald-700">#{userRank}</p>
+                    <p className="text-[10px] text-emerald-600 mt-1">among all students in {selectedSubject}</p>
+                  </div>
+                )}
+
                 <div className="flex justify-center gap-8 sm:gap-12 py-6 sm:py-8 border-y border-stone-100">
                   <div className="text-center">
                     <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-stone-400 mb-1">Your Score</p>
@@ -801,33 +771,6 @@ export default function App() {
                   <p className="text-stone-600">
                     Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
                   </p>
-                  
-                  {comparisonStats && !comparisonStats.loading ? (
-                    <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100 flex items-center justify-around gap-4 text-xs">
-                      <div className="text-center">
-                        <p className="text-stone-400 font-bold uppercase tracking-widest mb-1">Rank Info</p>
-                        <p className="text-stone-800 font-bold">You outperformed {Math.round((comparisonStats.lowerScoresCount / (comparisonStats.totalStudents || 1)) * 100)}% of students</p>
-                      </div>
-                      <div className="w-px h-8 bg-stone-200"></div>
-                      <div className="text-center">
-                        <p className="text-stone-400 font-bold uppercase tracking-widest mb-1">Global Average</p>
-                        <p className="text-stone-800 font-bold">{comparisonStats.averageScore}%</p>
-                      </div>
-                    </div>
-                  ) : comparisonStats?.loading ? (
-                    <div className="animate-pulse flex items-center justify-center gap-2 text-stone-400 text-xs italic">
-                      <div className="w-2 h-2 rounded-full bg-stone-300"></div>
-                      Calculating percentile rank...
-                    </div>
-                  ) : null}
-
-                  {scoreSaveError && (
-                    <div className="p-3 bg-red-50 text-red-600 rounded-xl text-xs flex items-center justify-center gap-2">
-                      <ShieldAlert className="w-4 h-4" />
-                      Couldn't save to the leaderboard. Check your connection.
-                    </div>
-                  )}
-
                   {cheatAttempts > 0 && (
                     <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm flex items-center justify-center gap-2">
                       <ShieldAlert className="w-4 h-4" />
@@ -847,8 +790,30 @@ export default function App() {
                     onClick={() => setScreen('leaderboard')}
                     className="flex-1 py-4 bg-white border border-stone-200 text-stone-700 font-bold rounded-2xl hover:bg-stone-50 transition-all"
                   >
-                    View Leaderboard
+                    View Full Leaderboard
                   </button>
+                </div>
+
+                {/* Mini Leaderboard */}
+                <div className="mt-12 space-y-4">
+                  <h3 className="text-xl font-bold text-stone-800 italic serif text-left">Top Performers</h3>
+                  <div className="bg-stone-50 rounded-2xl border border-stone-100 overflow-hidden">
+                    {leaderboard.slice(0, 5).map((res, idx) => (
+                      <div key={res.id} className={`flex items-center justify-between p-4 ${idx !== 4 ? 'border-b border-stone-100' : ''} ${res.userId === user?.uid ? 'bg-emerald-50/50' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-stone-400 text-xs w-4">{idx + 1}</span>
+                          <div className="text-left">
+                            <p className="font-bold text-stone-800 text-sm">{res.userName}</p>
+                            <p className="text-[10px] text-stone-400">{res.subject}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-emerald-600 text-lg">{res.score}</p>
+                          <p className="text-[9px] text-stone-400">Score</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Review Answers Section */}
@@ -862,7 +827,7 @@ export default function App() {
                         <div key={idx} className={`p-4 rounded-2xl border ${ans.isCorrect ? 'bg-emerald-50/50 border-emerald-100' : 'bg-red-50/50 border-red-100'}`}>
                           <p className="text-sm font-bold text-stone-400 mb-2">Question {idx + 1}</p>
                           <div className="text-stone-800 font-medium mb-3 markdown-body">
-                            <MathInline>{question.text}</MathInline>
+                            <Markdown>{question.text}</Markdown>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                             <div className="flex items-center gap-2">
@@ -890,7 +855,7 @@ export default function App() {
               key="leaderboard"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="max-w-4xl mx-auto space-y-6 sm:space-y-8"
+              className="max-w-2xl mx-auto space-y-6 sm:space-y-8"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3 sm:gap-4">
@@ -899,41 +864,12 @@ export default function App() {
                   </button>
                   <h2 className="text-2xl sm:text-3xl font-bold text-stone-800 italic serif">Leaderboard</h2>
                 </div>
-              </div>
-
-              {/* Subject Selector for Leaderboard */}
-              <div className="flex overflow-x-auto gap-2 pb-2 custom-scrollbar">
-                {subjects.map(subject => (
-                  <button
-                    key={subject}
-                    onClick={async () => {
-                      setSelectedSubject(subject);
-                      setLoading(true);
-                      const top = await fetchTopStudents(20, subject);
-                      setLeaderboard(top);
-                      setLoading(false);
-                    }}
-                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all border ${
-                      selectedSubject === subject 
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]' 
-                        : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-500 hover:text-emerald-600'
-                    }`}
-                  >
-                    {subject}
-                  </button>
-                ))}
+                <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm inline-block self-start sm:self-auto">
+                  Top 10 Students
+                </div>
               </div>
 
               <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-stone-100 flex items-center justify-between">
-                  <h3 className="font-bold text-stone-800 flex items-center gap-2 text-lg">
-                    <Trophy className="w-5 h-5 text-amber-500" />
-                    {selectedSubject} Rankings
-                  </h3>
-                  <div className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wider">
-                    Top 20 Students
-                  </div>
-                </div>
                 <div className="grid grid-cols-12 bg-stone-50 p-4 border-b border-stone-200 text-xs font-bold uppercase tracking-widest text-stone-400">
                   <div className="col-span-1">#</div>
                   <div className="col-span-5">Student</div>
@@ -943,20 +879,24 @@ export default function App() {
                 </div>
                 <div className="divide-y divide-stone-100">
                   {leaderboard.length > 0 ? leaderboard.map((res, idx) => (
-                    <div key={res.email} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
+                    <div key={res.id} className="grid grid-cols-12 p-4 items-center hover:bg-stone-50/50 transition-colors">
                       <div className="col-span-1 font-mono text-stone-400">{idx + 1}</div>
                       <div className="col-span-5">
-                        <p className="font-bold text-stone-800">{res.name}</p>
-                        <p className="text-[10px] text-stone-400">Total Quizzes Taken: {res.totalQuizzesTaken}</p>
+                        <p className="font-bold text-stone-800">{res.userName}</p>
+                        <p className="text-[10px] text-stone-400">{res.subject} • {res.topic}</p>
                       </div>
                       <div className="col-span-2 text-right font-black text-emerald-600 text-base sm:text-lg">
-                        {res.totalScore}
+                        {res.score}
                       </div>
                       <div className="col-span-2 text-right text-[9px] text-stone-500 truncate px-1">
                         {res.email}
                       </div>
                       <div className="col-span-2 text-right">
-                        <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Active</span>
+                        {res.cheated ? (
+                          <span className="text-[10px] bg-red-50 text-red-500 px-2 py-1 rounded-full font-bold uppercase">Flagged</span>
+                        ) : (
+                          <span className="text-[10px] bg-emerald-50 text-emerald-500 px-2 py-1 rounded-full font-bold uppercase">Verified</span>
+                        )}
                       </div>
                     </div>
                   )) : (
@@ -966,40 +906,6 @@ export default function App() {
                   )}
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showCalculatorHint && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[70] flex items-center justify-center px-4 bg-stone-900/30">
-              <motion.div initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }} className="w-[min(640px,100%)] max-w-lg bg-white rounded-2xl border border-stone-200 p-6 shadow-2xl text-stone-800">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-lg bg-emerald-50 flex items-center justify-center">
-                    <div className="animate-pulse">
-                      <Calculator className="w-8 h-8 text-emerald-600" />
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-lg">Calculator Available</h4>
-                    <p className="text-sm text-stone-600 mt-2">A calculator icon is available at the top-right of the quiz header — tap it to open the built-in calculator. You can perform calculations without leaving the app.</p>
-                    <p className="text-xs text-stone-400 mt-2">The icon will blink to help you identify it.</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-end gap-3">
-                  <button onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); }} className="px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 font-bold">Got it</button>
-                  <button onClick={() => { localStorage.setItem('readyspace_calc_seen', '1'); setShowCalculatorHint(false); setShowCalculator(true); }} className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold">Open Calculator</button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-
-          {showCalculator && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-stone-900/40">
-              <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}>
-                <CalculatorComponent onClose={() => setShowCalculator(false)} />
-              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
