@@ -27,4 +27,4 @@ export interface QuizResult {
   cheated: boolean;
 }
 
-export type Subject = 'English' | 'Math' | 'Physics' | 'Chemistry' | 'Biology' | 'Government' | 'C.R.S' | 'Economics';
+export type Subject = 'English' | 'Math' | 'Physics' | 'Chemistry' | 'Biology' | 'Government' | 'C.R.S' | 'Economics' | 'Literature';

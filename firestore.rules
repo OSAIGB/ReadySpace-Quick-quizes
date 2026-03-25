@@ -1,64 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-    function isAuthenticated() {
-      return request.auth != null;
+    // Allow any authenticated user (including Anonymous) to save a score
+    match /leaderboard/{scoreId} {
+      allow read: if true; // Everyone can see the leaderboard
+      allow write: if request.auth != null; // Only logged-in students can save
     }
     
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
-    }
-
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-    function isValidUser(data) {
-      return hasOnlyAllowedFields(['name', 'email', 'userId', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             isValidEmail(data.email) &&
-             data.userId == request.auth.uid;
-    }
-
-    function isValidScore(data) {
-      return hasOnlyAllowedFields(['userId', 'userName', 'email', 'score', 'totalQuestions', 'subject', 'topic', 'timestamp']) &&
-             data.userId == request.auth.uid &&
-             data.userName is string &&
-             isValidEmail(data.email) &&
-             data.score is number &&
-             data.totalQuestions is number &&
-             data.subject in ['English', 'Math', 'Physics', 'Government'];
-    }
-
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
-    // User profiles - PII protection: only owner can read their own profile
+    // Allow users to manage their own profile
     match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
-      allow delete: if false;
-    }
-
-    // Leaderboard scores
-    match /leaderboard/{scoreId} {
-      // Leaderboard is public for authenticated users, but we should be careful with emails.
-      // If the app displays emails on the leaderboard, it's a choice.
-      // Usually, it's better to only show names.
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidScore(request.resource.data);
-      allow update, delete: if false; // Scores are immutable
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

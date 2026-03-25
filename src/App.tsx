@@ -37,14 +37,20 @@ import {
   getAggregateFromServer,
   average
 } from 'firebase/firestore';
-import { db } from './firebase';
-import { saveStudentScore, fetchTopStudents, StudentStats } from './services/leaderboard';
+import { db, loginAnonymously, auth } from './firebase';
+import { 
+  fetchTopStudents, 
+  isUsernameAvailable, 
+  createUserProfile, 
+  StudentStats 
+} from './services/leaderboard';
 import CalculatorComponent from './components/Calculator';
 import MathInline from './components/MathInline';
 import { ENGLISH_QUESTIONS } from './data/questions';
 import { MATH_QUESTIONS } from './data/math_questions';
 import { PHYSICS_QUESTIONS } from './data/physics_questions';
 import { GOVT_QUESTIONS } from './data/govt_questions';
+import { LITERATURE_QUESTIONS } from './data/literature_questions';
 import { Question, QuizResult, Subject } from './types';
 
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
@@ -84,7 +90,7 @@ export default function App() {
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
   // Subjects
-  const subjects: Subject[] = ['English', 'Math', 'Physics', 'Government', 'Chemistry', 'Biology', 'C.R.S', 'Economics'];
+  const subjects: Subject[] = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Chemistry', 'Biology', 'C.R.S', 'Economics'];
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -102,6 +108,18 @@ export default function App() {
     }
     return () => clearInterval(timer);
   }, [screen, timeLeft]);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const firebaseUser = await loginAnonymously();
+        console.log("Logged in anonymously:", firebaseUser.uid);
+      } catch (err) {
+        console.error("Auto login failed:", err);
+      }
+    };
+    initAuth();
+  }, []);
 
   useEffect(() => {
     // Load local user if exists
@@ -156,22 +174,47 @@ export default function App() {
     setTimeout(() => setError(null), 3000);
   };
 
-  const handleEnter = (e: React.FormEvent) => {
+  const handleEnter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (tempName.trim().length < 2 || !tempEmail.includes('@')) {
       setError("Please enter your full name and a valid email.");
       return;
     }
-    const newUser = { 
-      name: tempName, 
-      email: tempEmail,
-      uid: 'local_' + Math.random().toString(36).substr(2, 9) 
-    };
-    setUser(newUser);
-    localStorage.setItem('readyspace_user_name', tempName);
-    localStorage.setItem('readyspace_user_email', tempEmail);
-    setScreen('subjects');
-    setShowGovtNotification(true);
+    
+    setLoading(true);
+    try {
+      console.log("Starting anonymous login...");
+      // 1. Login anonymously first to be authenticated
+      const firebaseUser = await loginAnonymously();
+      console.log("Logged in as:", firebaseUser.uid);
+      
+      // 2. Check if username is available (authenticated required by rules)
+      console.log("Checking availability for:", tempName);
+      const available = await isUsernameAvailable(tempName, firebaseUser.uid);
+      console.log("Availability:", available);
+      
+      if (!available) {
+        setError("This username is already taken. Please choose another.");
+        setLoading(false);
+        return;
+      }
+
+      // 3. Create/Update user profile
+      await createUserProfile(firebaseUser.uid, { name: tempName, email: tempEmail });
+      console.log("Profile created successfully");
+      
+      const newUser = { name: tempName, email: tempEmail, uid: firebaseUser.uid };
+      setUser(newUser);
+      localStorage.setItem('readyspace_user_name', tempName);
+      localStorage.setItem('readyspace_user_email', tempEmail);
+      setScreen('subjects');
+      setShowGovtNotification(true);
+    } catch (err: any) {
+      console.error(err);
+      setError("Authentication failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -182,7 +225,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government') {
+    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -196,6 +239,7 @@ export default function App() {
     if (selectedSubject === 'Math') questions = MATH_QUESTIONS;
     else if (selectedSubject === 'Physics') questions = PHYSICS_QUESTIONS;
     else if (selectedSubject === 'Government') questions = GOVT_QUESTIONS;
+    else if (selectedSubject === 'Literature') questions = LITERATURE_QUESTIONS;
     else questions = ENGLISH_QUESTIONS;
 
     setCurrentQuestions(questions);
@@ -250,15 +294,16 @@ export default function App() {
     if (selectedSubject === 'Math') topic = 'Fractions, Decimals, Approximations and Percentages';
     else if (selectedSubject === 'Physics') topic = 'Units, Quantities and Instruments';
     else if (selectedSubject === 'Government') topic = 'Definition, Concepts and Political Processes';
+    else if (selectedSubject === 'Literature') topic = 'Introduction to Literature and Literary Terms';
 
     const result: QuizResult = {
       userId: user?.uid || 'anonymous',
-      userName: user?.name || 'Anonymous',
-      email: user?.email || 'Unknown',
-      subject: selectedSubject!,
-      topic: topic,
+      userName: user?.name || 'Student',
+      email: user?.email || 'anonymous@readyspace.com',
+      subject: selectedSubject || 'Physics',
+      topic: topic || 'General Physics',
       score: score,
-      totalQuestions: currentQuestions.length,
+      totalQuestions: currentQuestions.length || 60,
       timestamp: Date.now(),
       cheated: cheatAttempts > 0
     };
@@ -274,17 +319,34 @@ export default function App() {
     });
 
     try {
-      await saveStudentScore(result);
+      if (!auth.currentUser) {
+        console.warn("No authenticated user, trying to save as anonymous");
+      }
+
+      await addDoc(collection(db, "leaderboard"), {
+        userId: auth.currentUser?.uid || user?.uid || 'anonymous',
+        userName: user?.name || 'Student',
+        email: user?.email || 'anonymous@readyspace.com',
+        score: score,
+        totalQuestions: currentQuestions.length || 60,
+        subject: selectedSubject || 'Physics',
+        topic: topic || 'General Physics',
+        cheated: cheatAttempts > 0,
+        timestamp: serverTimestamp()
+      });
       
-      // Calculate comparison stats
+      // Calculate comparison stats for this subject only
       const coll = collection(db, 'leaderboard');
-      const totalSnap = await getCountFromServer(coll);
+      const totalSnap = await getCountFromServer(query(coll, where('subject', '==', selectedSubject)));
       const totalCount = totalSnap.data().count;
       
-      const lowerSnap = await getCountFromServer(query(coll, where('score', '<', score)));
+      const lowerSnap = await getCountFromServer(query(coll, 
+        where('subject', '==', selectedSubject),
+        where('score', '<', score)
+      ));
       const lowerCount = lowerSnap.data().count;
       
-      const avgSnap = await getAggregateFromServer(coll, {
+      const avgSnap = await getAggregateFromServer(query(coll, where('subject', '==', selectedSubject)), {
         avgScore: average('score')
       });
       const avgScore = avgSnap.data().avgScore || 0;
@@ -346,7 +408,7 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {error && (
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
@@ -358,6 +420,9 @@ export default function App() {
               <p className="text-sm font-medium">{error}</p>
             </motion.div>
           )}
+        </AnimatePresence>
+
+        <AnimatePresence mode="wait">
 
           {screen === 'auth' && (
             <motion.div 
@@ -456,21 +521,21 @@ export default function App() {
                     key={subject}
                     onClick={() => handleSubjectSelect(subject)}
                     className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government'
+                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature'
                         ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
                         : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
                     }`}
                   >
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
                     }`}>
                       <BookOpen className="w-6 h-6" />
                     </div>
                     <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
                     <p className="text-xs text-stone-500 mt-1">
-                      {subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' ? '60 Questions Available' : 'Coming Soon'}
+                      {subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? '60 Questions Available' : 'Coming Soon'}
                     </p>
-                    {(subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government') && (
+                    {(subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature') && (
                       <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                     )}
                   </button>
@@ -507,6 +572,8 @@ export default function App() {
                         ? 'Units, Quantities and Instruments'
                         : selectedSubject === 'Government'
                         ? 'Definition, Concepts and Political Processes'
+                        : selectedSubject === 'Literature'
+                        ? 'Introduction to Literature and Literary Terms'
                         : 'LEXIS AND STRUCTURE'}
                     </h3>
                     <p className="text-sm text-stone-500 mt-1">
@@ -516,6 +583,8 @@ export default function App() {
                         ? 'Fundamental units, Dimensions, and Measuring Instruments.'
                         : selectedSubject === 'Government'
                         ? 'Power, Sovereignty, State, Nation, and Socialization.'
+                        : selectedSubject === 'Literature'
+                        ? 'Definition, genres, and basic literary analysis terms.'
                         : 'Synonyms, Antonyms, Sentence Patterns, Mechanics'}
                     </p>
                   </div>
@@ -821,7 +890,7 @@ export default function App() {
               key="leaderboard"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="max-w-2xl mx-auto space-y-6 sm:space-y-8"
+              className="max-w-4xl mx-auto space-y-6 sm:space-y-8"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3 sm:gap-4">
@@ -830,12 +899,41 @@ export default function App() {
                   </button>
                   <h2 className="text-2xl sm:text-3xl font-bold text-stone-800 italic serif">Leaderboard</h2>
                 </div>
-                <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm inline-block self-start sm:self-auto">
-                  Top 10 Students
-                </div>
+              </div>
+
+              {/* Subject Selector for Leaderboard */}
+              <div className="flex overflow-x-auto gap-2 pb-2 custom-scrollbar">
+                {subjects.map(subject => (
+                  <button
+                    key={subject}
+                    onClick={async () => {
+                      setSelectedSubject(subject);
+                      setLoading(true);
+                      const top = await fetchTopStudents(20, subject);
+                      setLeaderboard(top);
+                      setLoading(false);
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all border ${
+                      selectedSubject === subject 
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]' 
+                        : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-500 hover:text-emerald-600'
+                    }`}
+                  >
+                    {subject}
+                  </button>
+                ))}
               </div>
 
               <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-stone-100 flex items-center justify-between">
+                  <h3 className="font-bold text-stone-800 flex items-center gap-2 text-lg">
+                    <Trophy className="w-5 h-5 text-amber-500" />
+                    {selectedSubject} Rankings
+                  </h3>
+                  <div className="bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full font-bold text-[10px] sm:text-xs uppercase tracking-wider">
+                    Top 20 Students
+                  </div>
+                </div>
                 <div className="grid grid-cols-12 bg-stone-50 p-4 border-b border-stone-200 text-xs font-bold uppercase tracking-widest text-stone-400">
                   <div className="col-span-1">#</div>
                   <div className="col-span-5">Student</div>

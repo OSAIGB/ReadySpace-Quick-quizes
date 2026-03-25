@@ -22,7 +22,7 @@
         "email": { "type": "string" },
         "score": { "type": "integer" },
         "totalQuestions": { "type": "integer" },
-        "subject": { "type": "string", "enum": ["English", "Math", "Physics", "Government"] },
+        "subject": { "type": "string", "enum": ["English", "Math", "Physics", "Government", "Literature"] },
         "topic": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" }
       },
