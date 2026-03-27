@@ -4,18 +4,18 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  BookOpen, 
-  Lock, 
-  User, 
-  Mail, 
-  Key, 
-  Trophy, 
-  LogOut, 
-  ChevronRight, 
+import {
+  BookOpen,
+  Lock,
+  User,
+  Mail,
+  Key,
+  Trophy,
+  LogOut,
+  ChevronRight,
   ChevronLeft,
-  AlertCircle, 
-  CheckCircle2, 
+  AlertCircle,
+  CheckCircle2,
   XCircle,
   ShieldAlert,
   Timer,
@@ -24,25 +24,25 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { 
-  collection, 
-  addDoc, 
-  query, 
+import {
+  collection,
+  addDoc,
+  query,
   where,
-  orderBy, 
-  limit, 
-  onSnapshot, 
+  orderBy,
+  limit,
+  onSnapshot,
   serverTimestamp,
   getCountFromServer,
   getAggregateFromServer,
   average
 } from 'firebase/firestore';
 import { db, loginAnonymously, auth } from './firebase';
-import { 
-  fetchTopStudents, 
-  isUsernameAvailable, 
-  createUserProfile, 
-  StudentStats 
+import {
+  fetchTopStudents,
+  isUsernameAvailable,
+  createUserProfile,
+  StudentStats
 } from './services/leaderboard';
 import CalculatorComponent from './components/Calculator';
 import MathInline from './components/MathInline';
@@ -51,8 +51,9 @@ import { MATH_QUESTIONS } from './data/math_questions';
 import { PHYSICS_QUESTIONS } from './data/physics_questions';
 import { GOVT_QUESTIONS } from './data/govt_questions';
 import { LITERATURE_QUESTIONS } from './data/literature_questions';
+import { BIOLOGY_QUESTIONS } from './data/biology_questions';
 import { Question, QuizResult, Subject } from './types';
-
+import { IDIOM_QUESTIONS } from './data/Idiom_questions';
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
 
 export default function App() {
@@ -60,20 +61,21 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('auth');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Simple Name Entry State
   const [tempName, setTempName] = useState('');
   const [tempEmail, setTempEmail] = useState('');
 
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<{title: string} | null>(null);
   const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
-  const [answers, setAnswers] = useState<{questionId: number, selected: string, isCorrect: boolean}[]>([]);
+  const [answers, setAnswers] = useState<{ questionId: number, selected: string, isCorrect: boolean }[]>([]);
   const [quizStartTime, setQuizStartTime] = useState<number>(0);
   const [cheatAttempts, setCheatAttempts] = useState(0);
-  const [showFeedback, setShowFeedback] = useState<{isCorrect: boolean, correctAnswer: string, explanation?: string} | null>(null);
+  const [showFeedback, setShowFeedback] = useState<{ isCorrect: boolean, correctAnswer: string, explanation?: string } | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showCalculatorHint, setShowCalculatorHint] = useState(false);
   const [leaderboard, setLeaderboard] = useState<StudentStats[]>([]);
@@ -126,10 +128,10 @@ export default function App() {
     const savedName = localStorage.getItem('readyspace_user_name');
     const savedEmail = localStorage.getItem('readyspace_user_email');
     if (savedName && savedEmail) {
-      setUser({ 
-        name: savedName, 
+      setUser({
+        name: savedName,
         email: savedEmail,
-        uid: 'local_' + Math.random().toString(36).substr(2, 9) 
+        uid: 'local_' + Math.random().toString(36).substr(2, 9)
       });
       setScreen('subjects');
     }
@@ -180,19 +182,19 @@ export default function App() {
       setError("Please enter your full name and a valid email.");
       return;
     }
-    
+
     setLoading(true);
     try {
       console.log("Starting anonymous login...");
       // 1. Login anonymously first to be authenticated
       const firebaseUser = await loginAnonymously();
       console.log("Logged in as:", firebaseUser.uid);
-      
+
       // 2. Check if username is available (authenticated required by rules)
       console.log("Checking availability for:", tempName);
       const available = await isUsernameAvailable(tempName, firebaseUser.uid);
       console.log("Availability:", available);
-      
+
       if (!available) {
         setError("This username is already taken. Please choose another.");
         setLoading(false);
@@ -202,7 +204,7 @@ export default function App() {
       // 3. Create/Update user profile
       await createUserProfile(firebaseUser.uid, { name: tempName, email: tempEmail });
       console.log("Profile created successfully");
-      
+
       const newUser = { name: tempName, email: tempEmail, uid: firebaseUser.uid };
       setUser(newUser);
       localStorage.setItem('readyspace_user_name', tempName);
@@ -225,7 +227,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature') {
+    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature' && subject !== 'Biology') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -234,14 +236,38 @@ export default function App() {
     setScreen('topics');
   };
 
-  const startQuiz = () => {
-    let questions: Question[] = [];
-    if (selectedSubject === 'Math') questions = MATH_QUESTIONS;
-    else if (selectedSubject === 'Physics') questions = PHYSICS_QUESTIONS;
-    else if (selectedSubject === 'Government') questions = GOVT_QUESTIONS;
-    else if (selectedSubject === 'Literature') questions = LITERATURE_QUESTIONS;
-    else questions = ENGLISH_QUESTIONS;
+  const getTopicsForSubject = (subject: Subject | null) => {
+    switch(subject) {
+      case 'English':
+        return [
+          {
+            title: 'LEXIS AND STRUCTURE',
+            desc: 'Synonyms, Antonyms, Sentence Patterns, Mechanics',
+            questions: ENGLISH_QUESTIONS
+          },
+          {
+            title: 'IDIOMS',
+            desc: 'Understand and interpret common English idioms',
+            questions: IDIOM_QUESTIONS
+          }
+        ];
+      case 'Math':
+        return [{ title: 'Fractions, Decimals, Approximations and Percentages', desc: 'Percentages, Interest, Standard Form, Ratios, and more.', questions: MATH_QUESTIONS }];
+      case 'Physics':
+        return [{ title: 'Units, Quantities and Instruments', desc: 'Fundamental units, Dimensions, and Measuring Instruments.', questions: PHYSICS_QUESTIONS }];
+      case 'Government':
+        return [{ title: 'Definition, Concepts and Political Processes', desc: 'Power, Sovereignty, State, Nation, and Socialization.', questions: GOVT_QUESTIONS }];
+      case 'Literature':
+        return [{ title: 'Introduction to Literature and Literary Terms', desc: 'Definition, genres, and basic literary analysis terms.', questions: LITERATURE_QUESTIONS }];
+      case 'Biology':
+        return [{ title: 'Organization of Life and Cell Structure', desc: 'Cell characteristics, tissues, organs, and systems.', questions: BIOLOGY_QUESTIONS }];
+      default:
+        return [];
+    }
+  };
 
+  const startQuiz = (topicTitle: string, questions: Question[]) => {
+    setSelectedTopic({ title: topicTitle });
     setCurrentQuestions(questions);
     setScreen('quiz');
     setCurrentQuestionIndex(0);
@@ -257,9 +283,9 @@ export default function App() {
 
     const currentQuestion = currentQuestions[currentQuestionIndex];
     const isCorrect = selectedOption === currentQuestion.answer;
-    
+
     if (isCorrect) setScore(prev => prev + 1);
-    
+
     setAnswers(prev => [...prev, {
       questionId: currentQuestion.id,
       selected: selectedOption,
@@ -290,11 +316,7 @@ export default function App() {
   };
 
   const finishQuiz = async () => {
-    let topic = 'LEXIS AND STRUCTURE';
-    if (selectedSubject === 'Math') topic = 'Fractions, Decimals, Approximations and Percentages';
-    else if (selectedSubject === 'Physics') topic = 'Units, Quantities and Instruments';
-    else if (selectedSubject === 'Government') topic = 'Definition, Concepts and Political Processes';
-    else if (selectedSubject === 'Literature') topic = 'Introduction to Literature and Literary Terms';
+    let topic = selectedTopic?.title || 'General Physics';
 
     const result: QuizResult = {
       userId: user?.uid || 'anonymous',
@@ -334,18 +356,18 @@ export default function App() {
         cheated: cheatAttempts > 0,
         timestamp: serverTimestamp()
       });
-      
+
       // Calculate comparison stats for this subject only
       const coll = collection(db, 'leaderboard');
       const totalSnap = await getCountFromServer(query(coll, where('subject', '==', selectedSubject)));
       const totalCount = totalSnap.data().count;
-      
-      const lowerSnap = await getCountFromServer(query(coll, 
+
+      const lowerSnap = await getCountFromServer(query(coll,
         where('subject', '==', selectedSubject),
         where('score', '<', score)
       ));
       const lowerCount = lowerSnap.data().count;
-      
+
       const avgSnap = await getAggregateFromServer(query(coll, where('subject', '==', selectedSubject)), {
         avgScore: average('score')
       });
@@ -383,10 +405,10 @@ export default function App() {
             </div>
             <h1 className="font-bold text-xl tracking-tight text-stone-800">Ready<span className="text-emerald-600">Space</span></h1>
           </div>
-          
+
           {user && (
             <div className="flex items-center gap-4">
-              <button 
+              <button
                 onClick={() => setScreen('leaderboard')}
                 className="text-stone-600 hover:text-emerald-600 transition-colors"
               >
@@ -395,7 +417,7 @@ export default function App() {
               <div className="h-8 w-px bg-stone-200"></div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-stone-600 hidden sm:block">{user.name}</span>
-                <button 
+                <button
                   onClick={handleLogout}
                   className="p-2 text-stone-400 hover:text-red-500 transition-colors"
                 >
@@ -410,7 +432,7 @@ export default function App() {
       <main className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
         <AnimatePresence>
           {error && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
@@ -425,7 +447,7 @@ export default function App() {
         <AnimatePresence mode="wait">
 
           {screen === 'auth' && (
-            <motion.div 
+            <motion.div
               key="auth"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -442,7 +464,7 @@ export default function App() {
                   <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Your Name</label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
+                    <input
                       required
                       type="text"
                       value={tempName}
@@ -457,7 +479,7 @@ export default function App() {
                   <label className="text-xs font-semibold uppercase tracking-wider text-stone-500 ml-1">Student Email</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-                    <input 
+                    <input
                       required
                       type="email"
                       value={tempEmail}
@@ -468,7 +490,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <button 
+                <button
                   type="submit"
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-lg shadow-emerald-200 mt-4"
                 >
@@ -479,7 +501,7 @@ export default function App() {
           )}
 
           {screen === 'subjects' && (
-            <motion.div 
+            <motion.div
               key="subjects"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -499,7 +521,7 @@ export default function App() {
                         <CheckCircle2 className="w-5 h-5" />
                         <span className="text-xs font-bold uppercase tracking-wider">Government questions now available!</span>
                       </div>
-                      <button 
+                      <button
                         onClick={() => setShowGovtNotification(false)}
                         className="p-1 hover:bg-emerald-500 rounded-lg transition-colors"
                       >
@@ -516,36 +538,37 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {subjects.map((subject) => (
-                  <button
-                    key={subject}
-                    onClick={() => handleSubjectSelect(subject)}
-                    className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature'
-                        ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md' 
-                        : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
-                      subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
-                    }`}>
-                      <BookOpen className="w-6 h-6" />
-                    </div>
-                    <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
-                    <p className="text-xs text-stone-500 mt-1">
-                      {subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature' ? '60 Questions Available' : 'Coming Soon'}
-                    </p>
-                    {(subject === 'English' || subject === 'Math' || subject === 'Physics' || subject === 'Government' || subject === 'Literature') && (
-                      <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
-                    )}
-                  </button>
-                ))}
+                {subjects.map((subject) => {
+                  const isAvailable = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Biology'].includes(subject);
+                  return (
+                    <button
+                      key={subject}
+                      onClick={() => handleSubjectSelect(subject)}
+                      className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${isAvailable
+                          ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md'
+                          : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
+                        }`}
+                    >
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${isAvailable ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                        }`}>
+                        <BookOpen className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
+                      <p className="text-xs text-stone-500 mt-1">
+                        {isAvailable ? '60 Questions Available' : 'Coming Soon'}
+                      </p>
+                      {isAvailable && (
+                        <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </motion.div>
           )}
 
           {screen === 'topics' && (
-            <motion.div 
+            <motion.div
               key="topics"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -560,44 +583,31 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
-                <button
-                  onClick={startQuiz}
-                  className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
-                >
-                  <div>
-                    <h3 className="font-bold text-xl text-stone-800 uppercase">
-                      {selectedSubject === 'Math' 
-                        ? 'Fractions, Decimals, Approximations and Percentages' 
-                        : selectedSubject === 'Physics' 
-                        ? 'Units, Quantities and Instruments'
-                        : selectedSubject === 'Government'
-                        ? 'Definition, Concepts and Political Processes'
-                        : selectedSubject === 'Literature'
-                        ? 'Introduction to Literature and Literary Terms'
-                        : 'LEXIS AND STRUCTURE'}
-                    </h3>
-                    <p className="text-sm text-stone-500 mt-1">
-                      {selectedSubject === 'Math' 
-                        ? 'Percentages, Interest, Standard Form, Ratios, and more.' 
-                        : selectedSubject === 'Physics'
-                        ? 'Fundamental units, Dimensions, and Measuring Instruments.'
-                        : selectedSubject === 'Government'
-                        ? 'Power, Sovereignty, State, Nation, and Socialization.'
-                        : selectedSubject === 'Literature'
-                        ? 'Definition, genres, and basic literary analysis terms.'
-                        : 'Synonyms, Antonyms, Sentence Patterns, Mechanics'}
-                    </p>
-                  </div>
-                  <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                    <ChevronRight className="w-5 h-5" />
-                  </div>
-                </button>
+                {getTopicsForSubject(selectedSubject).map((topic, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => startQuiz(topic.title, topic.questions)}
+                    className="w-full p-6 bg-white border border-stone-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all text-left flex items-center justify-between group"
+                  >
+                    <div>
+                      <h3 className="font-bold text-xl text-stone-800 uppercase">
+                        {topic.title}
+                      </h3>
+                      <p className="text-sm text-stone-500 mt-1">
+                        {topic.desc}
+                      </p>
+                    </div>
+                    <div className="bg-emerald-50 text-emerald-600 p-2 rounded-lg group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                      <ChevronRight className="w-5 h-5" />
+                    </div>
+                  </button>
+                ))}
               </div>
             </motion.div>
           )}
 
           {screen === 'quiz' && (
-            <motion.div 
+            <motion.div
               key="quiz"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -634,7 +644,7 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                
+
                 {cheatAttempts > 0 && (
                   <div className="flex items-center gap-2 text-red-500 text-[10px] font-bold uppercase tracking-widest bg-red-50 p-2 rounded-lg">
                     <ShieldAlert className="w-3.5 h-3.5" />
@@ -662,9 +672,9 @@ export default function App() {
                     const isSelected = currentAnswer?.selected === option;
                     const isCorrect = option === currentQuestions[currentQuestionIndex].answer;
                     const hasBeenAnswered = !!currentAnswer;
-                    
+
                     let buttonClass = "w-full p-4 sm:p-5 text-left rounded-xl sm:rounded-2xl border-2 transition-all font-medium flex items-center justify-between group text-sm sm:text-base ";
-                    
+
                     if (showFeedback || hasBeenAnswered) {
                       if (isCorrect) {
                         buttonClass += "bg-emerald-50 border-emerald-500 text-emerald-700";
@@ -716,11 +726,10 @@ export default function App() {
                       initial={{ opacity: 0, scale: 0.9, y: 20 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                      className={`max-w-lg w-full p-8 rounded-3xl border shadow-2xl ${
-                        showFeedback.isCorrect 
-                          ? 'bg-white border-emerald-100' 
+                      className={`max-w-lg w-full p-8 rounded-3xl border shadow-2xl ${showFeedback.isCorrect
+                          ? 'bg-white border-emerald-100'
                           : 'bg-white border-red-100'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2 mb-3">
                         <div className={`p-1.5 rounded-lg ${showFeedback.isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
@@ -739,7 +748,7 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-3">
                         {!showFeedback.isCorrect && (
                           <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-100">
@@ -775,7 +784,7 @@ export default function App() {
           )}
 
           {screen === 'results' && (
-            <motion.div 
+            <motion.div
               key="results"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -796,12 +805,12 @@ export default function App() {
                     <p className="text-3xl sm:text-5xl font-black text-stone-800">{currentQuestions.length}</p>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4 pt-4">
                   <p className="text-stone-600">
                     Percentage: <span className="font-bold text-stone-800">{Math.round((score / currentQuestions.length) * 100)}%</span>
                   </p>
-                  
+
                   {comparisonStats && !comparisonStats.loading ? (
                     <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100 flex items-center justify-around gap-4 text-xs">
                       <div className="text-center">
@@ -837,13 +846,13 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                  <button 
+                  <button
                     onClick={() => setScreen('subjects')}
                     className="flex-1 py-4 bg-emerald-600 text-white font-bold rounded-2xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
                   >
                     Back to Subjects
                   </button>
-                  <button 
+                  <button
                     onClick={() => setScreen('leaderboard')}
                     className="flex-1 py-4 bg-white border border-stone-200 text-stone-700 font-bold rounded-2xl hover:bg-stone-50 transition-all"
                   >
@@ -886,7 +895,7 @@ export default function App() {
           )}
 
           {screen === 'leaderboard' && (
-            <motion.div 
+            <motion.div
               key="leaderboard"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -913,11 +922,10 @@ export default function App() {
                       setLeaderboard(top);
                       setLoading(false);
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all border ${
-                      selectedSubject === subject 
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]' 
+                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all border ${selectedSubject === subject
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]'
                         : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-500 hover:text-emerald-600'
-                    }`}
+                      }`}
                   >
                     {subject}
                   </button>

@@ -1,4 +1,5 @@
 import { Question } from '../types';
+import { IDIOM_QUESTIONS } from './Idiom_questions';
 
 const SYNONYM_INSTRUCTION = "Choose the option that is **nearest in meaning** to the bolded word or phrase.";
 const ANTONYM_INSTRUCTION = "Choose the option that is **opposite in meaning** to the bolded word or phrase.";
@@ -550,5 +551,6 @@ export const ENGLISH_QUESTIONS: Question[] = [
     options: ["A. interest", "B. solution", "C. stupidly", "D. character"], 
     answer: "B. solution",
     explanation: "**Enormous** and **solution** are both stressed on the second syllable. *Example: This is the perfect **solution** (same stress pattern as enormous).*"
-  }
+  },
+  ...IDIOM_QUESTIONS
 ];
