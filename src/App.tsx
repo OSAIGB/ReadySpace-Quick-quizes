@@ -54,6 +54,7 @@ import { LITERATURE_QUESTIONS } from './data/literature_questions';
 import { BIOLOGY_QUESTIONS } from './data/biology_questions';
 import { Question, QuizResult, Subject } from './types';
 import { IDIOM_QUESTIONS } from './data/Idiom_questions';
+import { ECONOMICS_QUESTIONS } from './data/economics_questions';
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
 
 export default function App() {
@@ -68,7 +69,7 @@ export default function App() {
 
   // Quiz State
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
-  const [selectedTopic, setSelectedTopic] = useState<{title: string} | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<{ title: string } | null>(null);
   const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
@@ -87,7 +88,7 @@ export default function App() {
     averageScore: number;
     loading: boolean;
   } | null>(null);
-  const [showGovtNotification, setShowGovtNotification] = useState(false);
+  const [showBioNotification, setShowBioNotification] = useState(false);
 
   const [timeLeft, setTimeLeft] = useState<number>(900); // 15 minutes in seconds
 
@@ -210,7 +211,7 @@ export default function App() {
       localStorage.setItem('readyspace_user_name', tempName);
       localStorage.setItem('readyspace_user_email', tempEmail);
       setScreen('subjects');
-      setShowGovtNotification(true);
+      setShowBioNotification(true);
     } catch (err: any) {
       console.error(err);
       setError("Authentication failed: " + err.message);
@@ -227,7 +228,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature' && subject !== 'Biology') {
+    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature' && subject !== 'Biology' && subject !== 'Economics') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -237,7 +238,7 @@ export default function App() {
   };
 
   const getTopicsForSubject = (subject: Subject | null) => {
-    switch(subject) {
+    switch (subject) {
       case 'English':
         return [
           {
@@ -261,6 +262,8 @@ export default function App() {
         return [{ title: 'Introduction to Literature and Literary Terms', desc: 'Definition, genres, and basic literary analysis terms.', questions: LITERATURE_QUESTIONS }];
       case 'Biology':
         return [{ title: 'Organization of Life and Cell Structure', desc: 'Cell characteristics, tissues, organs, and systems.', questions: BIOLOGY_QUESTIONS }];
+      case 'Economics':
+        return [{ title: 'Basic Concepts and Economic Systems', desc: 'Scarcity, Choice, Opportunity Cost, and Economic Systems.', questions: ECONOMICS_QUESTIONS }];
       default:
         return [];
     }
@@ -509,20 +512,25 @@ export default function App() {
               className="relative space-y-6 sm:space-y-8"
             >
               <AnimatePresence>
-                {showGovtNotification && (
+                {showBioNotification && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.9, y: -20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                    className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 w-full max-w-xs"
+                    className="absolute -top-12 left-1/2 -translate-x-1/2 z-50 w-full max-w-xs cursor-pointer animate-pulse"
+                    onClick={() => {
+                      const el = document.getElementById('subject-btn-Biology');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      setTimeout(() => setShowBioNotification(false), 1500);
+                    }}
                   >
-                    <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-emerald-500">
+                    <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-emerald-500 hover:bg-emerald-700 transition">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-5 h-5" />
-                        <span className="text-xs font-bold uppercase tracking-wider">Government questions now available!</span>
+                        <span className="text-xs font-bold uppercase tracking-wider">Biology now available!</span>
                       </div>
                       <button
-                        onClick={() => setShowGovtNotification(false)}
+                        onClick={(e) => { e.stopPropagation(); setShowBioNotification(false); }}
                         className="p-1 hover:bg-emerald-500 rounded-lg transition-colors"
                       >
                         <XCircle className="w-4 h-4" />
@@ -539,14 +547,15 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 {subjects.map((subject) => {
-                  const isAvailable = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Biology'].includes(subject);
+                  const isAvailable = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Biology', 'Economics'].includes(subject);
                   return (
                     <button
                       key={subject}
+                      id={`subject-btn-${subject}`}
                       onClick={() => handleSubjectSelect(subject)}
                       className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${isAvailable
-                          ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md'
-                          : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
+                        ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md'
+                        : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
                         }`}
                     >
                       <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${isAvailable ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
@@ -727,8 +736,8 @@ export default function App() {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: 20 }}
                       className={`max-w-lg w-full p-8 rounded-3xl border shadow-2xl ${showFeedback.isCorrect
-                          ? 'bg-white border-emerald-100'
-                          : 'bg-white border-red-100'
+                        ? 'bg-white border-emerald-100'
+                        : 'bg-white border-red-100'
                         }`}
                     >
                       <div className="flex items-center gap-2 mb-3">
@@ -923,8 +932,8 @@ export default function App() {
                       setLoading(false);
                     }}
                     className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all border ${selectedSubject === subject
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]'
-                        : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-500 hover:text-emerald-600'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-md translate-y-[-2px]'
+                      : 'bg-white text-stone-500 border-stone-200 hover:border-emerald-500 hover:text-emerald-600'
                       }`}
                   >
                     {subject}
