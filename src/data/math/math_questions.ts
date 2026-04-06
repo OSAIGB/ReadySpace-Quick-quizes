@@ -1,4 +1,4 @@
-import { Question } from '../types';
+import { Question } from '../../types';
 
 export const MATH_QUESTIONS: Question[] = [
   // Percentages and Interest

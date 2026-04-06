@@ -1,4 +1,4 @@
-import { Question } from '../types';
+import { Question } from '../../types';
 
 export const PHYSICS_QUESTIONS: Question[] = [
   // Fundamental Units and Quantities

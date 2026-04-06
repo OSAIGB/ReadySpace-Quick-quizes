@@ -46,15 +46,24 @@ import {
 } from './services/leaderboard';
 import CalculatorComponent from './components/Calculator';
 import MathInline from './components/MathInline';
-import { ENGLISH_QUESTIONS } from './data/questions';
-import { MATH_QUESTIONS } from './data/math_questions';
-import { PHYSICS_QUESTIONS } from './data/physics_questions';
-import { GOVT_QUESTIONS } from './data/govt_questions';
-import { LITERATURE_QUESTIONS } from './data/literature_questions';
-import { BIOLOGY_QUESTIONS } from './data/biology_questions';
+import { ENGLISH_QUESTIONS } from './data/english/questions';
+import { MATH_QUESTIONS } from './data/math/math_questions';
+import { PHYSICS_QUESTIONS } from './data/physics/physics_questions';
+import { SCALARS_VECTORS_MOTION_QUESTIONS } from './data/physics/scalars_vectors_motion';
+import { GOVT_QUESTIONS } from './data/govt/govt_questions';
+import { FORMS_OF_GOVT_QUESTIONS } from './data/govt/forms_of_govt';
+import { EXEC_JUD_STRUCTURE_QUESTIONS } from './data/govt/exec_jud_stucture';
+import { LITERATURE_QUESTIONS } from './data/literature/literature_questions';
+import { POETRY_DRAMA_QUESTIONS } from './data/literature/poetry_drama';
+import { BIOLOGY_QUESTIONS } from './data/biology/biology_questions';
 import { Question, QuizResult, Subject } from './types';
-import { IDIOM_QUESTIONS } from './data/Idiom_questions';
-import { ECONOMICS_QUESTIONS } from './data/economics_questions';
+import { IDIOM_QUESTIONS } from './data/english/Idiom_questions';
+import { ECONOMICS_QUESTIONS } from './data/economics/economics_questions';
+import { CHEMISTRY_QUESTIONS } from './data/chemistry/chemistry_questions';
+import { KINETIC_GAS_LAWS_QUESTIONS } from './data/chemistry/kinetic_gas_laws';
+import { ATOMIC_STRUCTURE_BONDING_QUESTIONS } from './data/chemistry/atomic_stucture_bonding';
+import { CRS_QUESTIONS } from './data/crs/crs_questions';
+import { GEOMETRY_CALCULUS_STATISTICS_QUESTIONS } from './data/math/geometry_calculus_statistics';
 type Screen = 'auth' | 'subjects' | 'topics' | 'quiz' | 'results' | 'leaderboard';
 
 export default function App() {
@@ -228,7 +237,7 @@ export default function App() {
   };
 
   const handleSubjectSelect = (subject: Subject) => {
-    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature' && subject !== 'Biology' && subject !== 'Economics') {
+    if (subject !== 'English' && subject !== 'Math' && subject !== 'Physics' && subject !== 'Government' && subject !== 'Literature' && subject !== 'Biology' && subject !== 'Economics' && subject !== 'Chemistry' && subject !== 'C.R.S') {
       setError(`${subject} is currently unavailable.`);
       setTimeout(() => setError(null), 3000);
       return;
@@ -253,17 +262,62 @@ export default function App() {
           }
         ];
       case 'Math':
-        return [{ title: 'Fractions, Decimals, Approximations and Percentages', desc: 'Percentages, Interest, Standard Form, Ratios, and more.', questions: MATH_QUESTIONS }];
+        return [
+          {
+            title: 'Fractions, Decimals, Approximations and Percentages',
+            desc: 'Percentages, Interest, Standard Form, Ratios, and more.',
+            questions: MATH_QUESTIONS
+          },
+          {
+            title: 'Geometry, Calculus and Statistics',
+            desc: 'Advanced mathematics including Geometry, Calculus & Statistics.',
+            questions: GEOMETRY_CALCULUS_STATISTICS_QUESTIONS
+          }
+        ];
       case 'Physics':
-        return [{ title: 'Units, Quantities and Instruments', desc: 'Fundamental units, Dimensions, and Measuring Instruments.', questions: PHYSICS_QUESTIONS }];
+        return [
+          {
+            title: 'Units, Quantities and Instruments',
+            desc: 'Fundamental units, Dimensions, and Measuring Instruments.',
+            questions: PHYSICS_QUESTIONS
+          },
+          {
+            title: 'Scalars, Vectors and Motion',
+            desc: 'Understand the difference between scalars and vectors, and the concepts of motion.',
+            questions: SCALARS_VECTORS_MOTION_QUESTIONS
+          }
+        ];
       case 'Government':
-        return [{ title: 'Definition, Concepts and Political Processes', desc: 'Power, Sovereignty, State, Nation, and Socialization.', questions: GOVT_QUESTIONS }];
+        return [
+          { title: 'Definition, Concepts and Political Processes', desc: 'Power, Sovereignty, State, Nation, and Socialization.', questions: GOVT_QUESTIONS },
+          { title: 'Forms of Government', desc: 'Democracy, Aristocracy, Monarchy, and the Arms of Government.', questions: FORMS_OF_GOVT_QUESTIONS },
+          { title: 'The Executive, Judiciary & Government Structures', desc: 'Executive functions, Judiciary, Separation of Powers, Unitary & Federal systems.', questions: EXEC_JUD_STRUCTURE_QUESTIONS }
+        ];
       case 'Literature':
-        return [{ title: 'Introduction to Literature and Literary Terms', desc: 'Definition, genres, and basic literary analysis terms.', questions: LITERATURE_QUESTIONS }];
+        return [
+          {
+            title: 'Introduction to Literature and Literary Terms',
+            desc: 'Definition, genres, and basic literary analysis terms.',
+            questions: LITERATURE_QUESTIONS
+          },
+          {
+            title: 'POETRY, DRAMA AND PROSE SELECTION',
+            desc: 'Detailed study of prescribed plays, novels and poems.',
+            questions: POETRY_DRAMA_QUESTIONS
+          }
+        ];
       case 'Biology':
         return [{ title: 'Organization of Life and Cell Structure', desc: 'Cell characteristics, tissues, organs, and systems.', questions: BIOLOGY_QUESTIONS }];
       case 'Economics':
         return [{ title: 'Basic Concepts and Economic Systems', desc: 'Scarcity, Choice, Opportunity Cost, and Economic Systems.', questions: ECONOMICS_QUESTIONS }];
+      case 'Chemistry':
+        return [
+          { title: 'General and Industrial Chemistry', desc: 'Matter, Atomic Structure, Bonding, and Real-world applications.', questions: CHEMISTRY_QUESTIONS },
+          { title: 'Kinetic Theory and Gas Laws', desc: 'Kinetic theory, Gas laws, Diffusion, and States of matter.', questions: KINETIC_GAS_LAWS_QUESTIONS },
+          { title: 'Atomic Structure and Bonding', desc: 'Protons, Neutrons, Electrons, Atomic models, and Chemical bonds.', questions: ATOMIC_STRUCTURE_BONDING_QUESTIONS }
+        ];
+      case 'C.R.S':
+        return [{ title: 'Sovereignty, Covenants, and Prophecy', desc: 'Creation, God’s Covenants with Noah, Abraham, and Israel.', questions: CRS_QUESTIONS }];
       default:
         return [];
     }
@@ -547,29 +601,59 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 {subjects.map((subject) => {
-                  const isAvailable = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Biology', 'Economics'].includes(subject);
+                  const isAvailable = ['English', 'Math', 'Physics', 'Government', 'Literature', 'Biology', 'Economics', 'Chemistry', 'C.R.S'].includes(subject);
+
+                  // Unique gradients for each subject to make it "WOW"
+                  const gradients: Record<string, string> = {
+                    'English': 'from-blue-500 to-indigo-600',
+                    'Math': 'from-orange-500 to-red-600',
+                    'Physics': 'from-purple-500 to-blue-600',
+                    'Government': 'from-stone-600 to-stone-800',
+                    'Literature': 'from-emerald-500 to-teal-600',
+                    'Biology': 'from-green-500 to-emerald-600',
+                    'Economics': 'from-amber-500 to-orange-600',
+                    'Chemistry': 'from-pink-500 to-rose-600',
+                    'C.R.S': 'from-cyan-500 to-blue-600'
+                  };
+
                   return (
-                    <button
+                    <motion.button
                       key={subject}
                       id={`subject-btn-${subject}`}
+                      whileHover={isAvailable ? { scale: 1.05, y: -5 } : {}}
+                      whileTap={isAvailable ? { scale: 0.95 } : {}}
                       onClick={() => handleSubjectSelect(subject)}
-                      className={`p-6 rounded-2xl border transition-all text-left group relative overflow-hidden ${isAvailable
-                        ? 'bg-white border-stone-200 hover:border-emerald-500 hover:shadow-md'
+                      className={`p-6 rounded-3xl border transition-all text-left group relative overflow-hidden h-full flex flex-col ${isAvailable
+                        ? 'bg-white border-stone-100 shadow-sm hover:shadow-2xl hover:border-transparent'
                         : 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed'
                         }`}
                     >
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${isAvailable ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-stone-200 text-stone-400'
+                      {/* Animated gradient background on hover */}
+                      <div className={`absolute inset-0 bg-gradient-to-br ${gradients[subject] || 'from-stone-400 to-stone-600'} opacity-0 group-hover:opacity-10 transition-opacity duration-500`} />
+
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-5 transition-all duration-500 ${isAvailable
+                        ? `bg-gradient-to-br ${gradients[subject] || 'from-emerald-500 to-teal-600'} text-white shadow-lg group-hover:rotate-12`
+                        : 'bg-stone-200 text-stone-400'
                         }`}>
-                        <BookOpen className="w-6 h-6" />
+                        <BookOpen className="w-7 h-7" />
                       </div>
-                      <h3 className="font-bold text-lg text-stone-800">{subject}</h3>
-                      <p className="text-xs text-stone-500 mt-1">
-                        {isAvailable ? '60 Questions Available' : 'Coming Soon'}
-                      </p>
+
+                      <div className="relative z-10">
+                        <h3 className="font-bold text-xl text-stone-800 group-hover:text-emerald-700 transition-colors uppercase tracking-tight">{subject}</h3>
+                        <p className="text-xs font-semibold text-stone-400 mt-2 uppercase tracking-widest">
+                          {isAvailable ? 'Explore Content' : 'Coming Soon'}
+                        </p>
+                      </div>
+
                       {isAvailable && (
-                        <ChevronRight className="absolute bottom-6 right-6 w-5 h-5 text-stone-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
+                        <div className="mt-auto pt-6 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full uppercase tracking-tighter">60+ Questions</span>
+                          <div className={`p-1.5 rounded-full bg-stone-50 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300`}>
+                            <ChevronRight className="w-4 h-4" />
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>

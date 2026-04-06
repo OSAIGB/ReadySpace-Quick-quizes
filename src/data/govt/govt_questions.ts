@@ -1,4 +1,4 @@
-import { Question } from '../types';
+import { Question } from '../../types';
 
 export const GOVT_QUESTIONS: Question[] = [
   // Topic 1: Definition and Scope of Government
